@@ -10,7 +10,7 @@ const api = axios.create({
 
 // --- MOCK SERVER SETUP (Toggle this based on env if needed) ---
 // const isDev = import.meta.env.DEV
-const isDev = true
+const isDev = false
 
 if (isDev) {
     const mock = new MockAdapter(api, { delayResponse: 500 })

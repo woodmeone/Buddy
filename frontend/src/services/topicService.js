@@ -1,34 +1,42 @@
 import api from './api'
 
 export const topicService = {
-    // Get all saved topics
-    async getTopics() {
+    // 获取选题列表 (Mock -> Backend)
+    async getTopics(status = 'all') {
         const res = await api.get('/topics')
-        return res.data
-    },
-
-    // Save a topic to the library
-    async saveTopic(topicData) {
-        // Prepare data structure
-        const payload = {
-            title: topicData.title,
-            source: topicData.source || 'Unknown',
-            summary: topicData.aiSummary || topicData.description || '',
-            url: topicData.url || '',
-            originalId: topicData.id,
-            savedAt: new Date().toISOString()
+        // ... (rest is same)
+        let topics = res.data
+        if (status !== 'all') {
+            topics = topics.filter(t => t.status === status)
         }
-        const res = await api.post('/topics', payload)
+        return topics
+    },
+
+    // 获取单个选题
+    async getTopic(id) {
+        // Backend API implements GET /topics/{id}
+        const res = await api.get(`/topics/${id}`)
         return res.data
     },
 
-    // Delete a topic
+    // 删除选题
     async deleteTopic(id) {
         return api.delete(`/topics/${id}`)
     },
 
-    // Batch delete
-    async deleteTopics(ids) {
-        return api.post('/topics/batch-delete', { ids })
+    // 批量删除
+    async batchDelete(ids) {
+        return api.post('/topics/batch-delete', ids)
+    },
+
+    // 保存选题 (从发现页添加到选题库)
+    // Frontend checks duplications usually? Or backend?
+    // Backend API create_topic just adds.
+    async createTopic(topicData) {
+        return api.post('/topics', topicData)
+    },
+
+    async updateTopicStatus(id, status) {
+        return api.put(`/topics/${id}`, { status })
     }
 }

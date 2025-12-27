@@ -8,160 +8,177 @@
 ### ER 图 (实体关系图)
 ```mermaid
 erDiagram
-    Source ||--o{ Topic : "生产"
-    Persona ||--o{ Topic : "筛选/排序"
+    Persona ||--o{ SourceConfig : "配置"
+    SourceConfig ||--o{ Topic : "抓取"
     Topic ||--o{ Script : "生成"
     Topic ||--o{ TopicTag : "拥有"
-    Topic ||--o{ ExportLog : "记录"
-
-    Source {
-        int id PK
-        string type "数据源类型: github_trending, bilibili_user, zhihu_hot, rss"
-        string category "分类: official_preset (官方预设), user_custom (用户自定义)"
-        string name "名称 (e.g. '我的特别关注')"
-        string config_json "配置信息 (JSON): {uid: '12345'}, {url: 'https://...'} - 支持任意自定义源"
-        boolean is_active "是否启用"
-        datetime last_fetch_time "上次抓取时间"
-        string error_msg "错误信息"
-    }
+    
+    %% ScriptTemplate 独立于具体业务流程，作为工具资源
+    ScriptTemplate ||--|{ Script : "样式基准"
 
     Persona {
         int id PK
         string name "人设名称"
-        string description "描述"
-        string keywords "关键词 (逗号分隔或 JSON)"
-        string prompt_template "提示词模板"
-        boolean is_active "是否启用"
+        string description "描述 (Avatar View)"
+        int depth "专业深度 (1-10)"
+        string custom_prompt "System Prompt 核心设定"
+        string interests "兴趣标签 (JSON array)"
+        datetime created_at
+        datetime updated_at
+    }
+
+    SourceConfig {
+        int id PK
+        int persona_id FK "归属人设"
+        string type "类型: bilibili_user, rss_feed, hot_list"
+        string name "备注名称"
+        string config_data "配置详情 (JSON): {uid: '...', url: '...'}"
+        boolean enabled "是否启用"
     }
 
     Topic {
         int id PK
-        int source_id FK
-        string original_id "原始ID (防重)"
+        int source_config_id FK
+        string original_id "原始ID (防重, e.g. B站BV号, GitHub Repo ID)"
         string title "标题"
-        string url "链接 (原文跳转)"
-        string summary "简介"
-        string images "图片列表 (JSON字符串): ['url1', 'url2']"
-        text raw_data "原始数据 (JSON)"
-        datetime publish_time "发布时间"
-        float hot_score "热度分"
+        string url "链接"
+        string summary "简介/AI摘要"
+        string thumbnail "封面图"
         
-        string status "状态: new, analyzed, ignored, selected"
-        float match_score "AI 匹配度"
-        string ai_comment "AI 推荐语"
-        datetime created_at
-        datetime updated_at
+        json metrics "数据指标 (JSON): {views: 1200, stars: 500, likes: 100}"
+        json analysis_result "AI分析结果 (JSON): {difficulty: 'Low', personaMatch: 'High', score: 98}"
+        
+        string status "状态: new (发现), saved (入库), rejected (忽略)"
+        datetime published_at "发布时间"
+        datetime saved_at "入库时间"
     }
     
     TopicTag {
         int id PK
         int topic_id FK
-        string tag_name "标签名"
+        string tag_name "标签名 (e.g. #AI Tool)"
+    }
+
+    ScriptTemplate {
+        int id PK
+        string name "模板名称 (e.g. ⚡ 快节奏口播)"
+        string content_template "模板内容 (Mustache/Handlebars 格式)"
+        string type "类型: fast_paced, storytelling"
     }
 
     Script {
         int id PK
         int topic_id FK
+        int template_id FK
         string title "脚本标题"
-        string version "版本号"
-        string template_type "模板类型: fast_paced, storytelling 等"
-        text content_md "Markdown 内容"
+        text content "生成的内容"
         string status "状态: draft, final"
         datetime created_at
         datetime updated_at
     }
-    
-    ExportLog {
-        int id PK
-        int topic_id FK
-        string target_platform "目标平台: feishu"
-        string status "状态"
-        datetime exported_at
-        string result_json "结果反馈"
-    }
-    
-    SystemConfig {
-        string key PK "配置键"
-        string value "配置值"
-        string description "描述"
-    }
 ```
 
-### Schema 定义 (SQLModel/Pydantic 风格)
+### Schema 定义 (对应前端交互)
 
-#### 1. Source (情报来源)
-*   **id**: `int` (主键)
-*   **type**: `enum` (github, bilibili, rss, hotAPI)
+#### 1. Persona (人设)
+*   **id**: `int`
 *   **name**: `str`
-*   **config**: `dict` (JSON: `{uid: "123"}`, `{url: "..."}`) - **核心**: 存储用户自定义的 RSS URL 或 B站 UID
-*   **status**: `bool` (启用/禁用)
-*   **cron_expression**: `str` (可选, 定时任务表达式)
+*   **description**: `str`
+*   **depth**: `int` (1-10)
+*   **customPrompt**: `text`
+*   **interests**: `list[str]`
+*   **bilibiliList**: `list[SourceConfig]` (前端特定字段，映射到 SourceConfig)
+*   **rssList**: `list[SourceConfig]`
+*   **hotSources**: `list[SourceConfig]`
 
-#### 2. Persona (用户人设)
-*   **id**: `int`
-*   **name**: `str` (例如: "技术极客", "职场导师")
-*   **role_definition**: `text` (System Prompt 上下文)
-*   **negative_keywords**: `list[str]` (过滤词)
-*   **preferred_topics**: `list[str]` (偏好主题)
+#### 2. SourceConfig (源配置)
+*   **id**: `int` (可选, 新增时无)
+*   **name**: `str`
+*   **type**: `enum` (bilibili, rss, hot)
+*   **uid**: `str` (对应 Bilibili)
+*   **url**: `str` (对应 RSS)
+*   **enabled**: `bool`
 
-#### 3. Topic (选题候选)
+#### 3. Topic (选题)
 *   **id**: `int`
-*   **source_id**: `int` (外键)
-*   **external_id**: `str` (来源方唯一 ID, 防止重复抓取)
 *   **title**: `str`
-*   **url**: `str` (原文链接)
-*   **images**: `list[str]` (图片/封面图 URL 列表) - **新增**: 支持富媒体展示
-*   **content_summary**: `text` (简短描述)
-*   **meta_data**: `dict` (JSON: 播放量, Star 数, 作者信息等)
-*   **ai_analysis**: `dict` (JSON: `{relevance: 0.9, reason: "...", tags: []}`)
-*   **processing_status**: `enum` (pending 待处理, processed 已分析, rejected 已拒绝, approved 已采纳)
+*   **source**: `str` (来源平台标识，如 'GitHub', 'Bilibili')
+*   **url**: `str`
+*   **summary**: `text` (AI Analysis Summary)
+*   **score**: `float` (匹配度分数)
+*   **labels**: `list[str]` (前端用 labels, 对应 Tags)
+*   **analysis**: `dict` (JSON)
+    *   `difficulty`: `str`
+    *   `personaMatch`: `str`
+    *   `viralityPotential`: `str`
+    *   `commercialValue`: `str`
+*   **status**: `enum` (new, saved)
 
-#### 4. Script (生成脚本)
+#### 4. ScriptTemplate (脚本模板)
 *   **id**: `int`
-*   **topic_id**: `int`
-*   **template_id**: `str` (使用的模板 ID)
-*   **content**: `text` (Markdown 格式脚本内容)
-*   **iterations**: `int` (迭代版本次数)
+*   **name**: `str`
+*   **template**: `text` (Markdown string with placeholders like `{{topic.title}}`)
+
+---
 
 ## API 接口设计 (RESTful)
 
-### 1. 仪表盘 & 通用 (Dashboard & General)
-*   `GET /api/v1/dashboard/stats`: 获取概览数据 (总选题数, 今日新增, 已生成脚本数)。
-*   `GET /api/v1/system/config`: 获取系统配置。
-*   `PUT /api/v1/system/config`: 更新系统配置。
+### 1. 人设与配置 (Personas & Settings)
+对应前端 `personaService.js` 与 `SettingsView.vue`
+*   `GET /api/v1/personas`: 获取所有人设列表 (包含基础信息)。
+*   `GET /api/v1/personas/{id}`: 获取单个人设详情 (包含 `bilibiliList`, `rssList` 等源配置)。
+*   `POST /api/v1/personas`: 创建人设。
+*   `PUT /api/v1/personas/{id}`: 更新人设 (包含更新其绑定的源配置)。
+*   `DELETE /api/v1/personas/{id}`: 删除人设。
 
-### 2. 数据源管理 (Sources)
-*   `GET /api/v1/sources`: 列出所有配置的数据源 (包含预设和自定义)。
-*   `POST /api/v1/sources`: **添加自定义数据源** (用户输入 RSS 链接或 UP 主 ID)。
-*   `PUT /api/v1/sources/{id}`: 更新数据源信息。
-*   `DELETE /api/v1/sources/{id}`: 删除/禁用数据源。
-*   `POST /api/v1/sources/{id}/test`: 测试数据源连通性。
-*   `POST /api/v1/tasks/trigger`: 手动触发抓取任务 (全局或指定源)。
+### 2. 仪表盘与发现 (Dashboard & Discovery)
+对应前端 `DashboardView.vue`
+*   `GET /api/v1/dashboard/feed`: 获取聚合的信息流 (Discovery)。
+    *   **Query Params**:
+        *   `persona_id`: `int` (必填，根据人设配置的源抓取/筛选)
+        *   `type`: `xml` (可选，筛选特定类型的源，如 'github', 'bilibili')
+    *   **Response**: 返回混合列表，包含 `Topic` 结构的数据 (状态为 `new`)。包含 `metrics` (stars, views) 和初步 AI 摘要。
 
-### 3. 人设配置 (Personas)
-*   `GET /api/v1/personas`: 获取人设列表。
-*   `POST /api/v1/personas`: 创建新人设。
-*   `PUT /api/v1/personas/{id}`: 更新人设。
+### 3. 选题库管理 (Topic Library)
+对应前端 `topicService.js` 与 `TopicLibraryView.vue`
+*   `GET /api/v1/topics`: 获取**已保存**的选题列表 (Library)。
+    *   支持分页，按 `saved_at` 排序。
+*   `POST /api/v1/topics`: **保存/收藏**选题 (Save to Library)。
+    *   Payload: `{ title, source, url, summary, originalId, analysis: {...} }`
+*   `GET /api/v1/topics/{id}`: 获取选题详情 (包含完整 AI 分析报告)。
+*   `DELETE /api/v1/topics/{id}`: 移除选题。
+*   `POST /api/v1/topics/batch-delete`: 批量删除。
+    *   Payload: `{ ids: [1, 2, 3] }`
 
-### 4. 选题管理 (Topics)
-*   `GET /api/v1/topics`: 获取选题列表 (支持分页, 状态/来源/日期筛选)。
-*   `GET /api/v1/topics/{id}`: 获取选题详情。
-*   `POST /api/v1/topics/{id}/analyze`: 手动触发/重新触发 AI 分析。
-*   `PATCH /api/v1/topics/{id}/status`: 更新选题状态 (例如: 忽略/归档)。
+### 4. 脚本模板 (Script Templates)
+对应前端 `scriptService.js`
+*   `GET /api/v1/script-templates`: 获取所有可用模板。
+*   `POST /api/v1/script-templates`: 创建新模板。
+*   `PUT /api/v1/script-templates/{id}`: 更新模板。
+*   `DELETE /api/v1/script-templates/{id}`: 删除模板。
 
-### 5. 脚本生成 (Scripts)
-*   `POST /api/v1/scripts/generate`: 为指定选题生成脚本。
-    *   请求体: `{topic_id: int, template_id: str, extra_instructions: str}`
-*   `GET /api/v1/scripts/{id}`: 获取脚本内容。
-*   `PUT /api/v1/scripts/{id}`: 手动更新脚本内容。
+### 5. 脚本生成 (Script Generation)
+对应前端 `TopicDetailView.vue` (功能)
+*   `POST /api/v1/topics/{id}/generate-script`: 生成脚本。
+    *   Payload: `{ template_id: int }`
+    *   Response: `{ content: "..." }` (返回生成的 Markdown 内容)
+    *   *注: 前端目前是 Mock 的 setTimeout，后端需对接 LLM。*
 
 ### 6. 外部集成 (Integration)
-*   `POST /api/v1/export/feishu`: 推送选题/脚本到飞书。
-    *   请求体: `{topic_id: int, script_id: optional[int]}`
+*   `POST /api/v1/integration/feishu/sync`: 同步到飞书多维表格。
+    *   Payload: `{ topic_id: int, content: str }`
 
-## 验证计划
-### 手动验证
-1.  **Schema 检查**: 对照 PRD 需求审查 ER 图和字段定义，确保 metadata 包含核心指标（如 GitHub Star 数，B 站播放量）。
-2.  **API 流程走查**:
-    *   模拟用户路径: 添加数据源 -> 触发抓取 -> 查看选题列表 -> AI 分析 -> 生成脚本 -> 导出。
-    *   确认每个步骤都有对应的 API 接口支持。
+## 开发核对清单 (Checklist)
+
+### 前端已实现 (Frontend Mocked)
+- [x] SettingsView: 人设增删改查、源配置 (B站/RSS/热榜) 嵌套管理。
+- [x] DashboardView: 展示发现页信息流 (UI 卡片: CodeMineCard, RivalCard, BuzzList)。
+- [x] TopicLibraryView: 已保存选题的列表展示。
+- [x] TopicDetailView: 选题详情展示、AI 分析维度 (`difficulty`, `match`)、脚本生成触发。
+- [x] ScriptTemplates: (Service 定义了 CRUD，View 需确认是否完整)。
+
+### 后端需适配 (Backend TODO)
+- [ ] **API**: 实现 `/dashboard/feed` 接口，这是最核心的“探针”逻辑，需要实时或定时聚合 SourceConfig 中的数据源。
+- [ ] **Worker**: 编写爬虫/API 客户端 (GitHub API, Bilibili API, RSS Parser)。
+- [ ] **AI Engine**: 实现 `Topic` 的 `analysis` 生成 (Difficulty, Match Score) 和 `Script` 生成逻辑。
+- [ ] **Database**: 迁移上述 ER 图到数据库 (SQLite/PostgreSQL)。

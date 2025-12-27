@@ -55,7 +55,7 @@ const deleteSelected = async () => {
     if (!confirm(`确定删除选中的 ${selectedIds.value.length} 个选题吗？`)) return
     
     try {
-        await topicService.deleteTopics(selectedIds.value)
+        await topicService.batchDelete(selectedIds.value)
         selectedIds.value = []
         await fetchTopics()
     } catch (e) {

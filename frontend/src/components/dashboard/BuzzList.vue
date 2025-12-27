@@ -7,13 +7,17 @@ defineProps({
     required: true
   }
 })
+
+defineEmits(['item-contextmenu'])
 </script>
 
 <template>
   <div class="space-y-3">
     <div v-for="(item, index) in items" :key]
       ="item.id" 
-      class="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3 group cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all relative overflow-hidden">
+      class="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3 group cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all relative overflow-hidden"
+      @contextmenu.prevent="$emit('item-contextmenu', $event, item)"
+      >
       
       <!-- Rank -->
       <div class="text-2xl font-black text-slate-100 group-hover:text-indigo-50 transition-colors italic w-8 text-center shrink-0">

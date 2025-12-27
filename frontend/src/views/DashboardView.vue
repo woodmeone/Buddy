@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { Sparkles, RefreshCw } from 'lucide-vue-next'
 import { useSettings } from '../composables/useSettings'
 import CodeMineCard from '../components/dashboard/CodeMineCard.vue'
@@ -134,15 +135,80 @@ const openWorkbench = () => {
 
 const showAnalysisModal = ref(false)
 
+const router = useRouter() // Import router if not exists, wait, need to check top
+// ...
+const handleDeepDive = async (topic) => {
+    if (!topic) return
+    
+    // Safety check: Needs to be saved to DB for script generation foreign keys.
+    try {
+         // Normalize Data (CodeMine uses name/description, others title/summary)
+         const title = topic.title || topic.name
+         // Fallback for summary
+         const summary = topic.summary || topic.aiSummary || topic.description || ''
+         // Determine ID
+         const safeOriginalId = topic.original_id || topic.url || `mock-${topic.id}-${title}`
+
+         const saved = await topicService.createTopic({
+            original_id: safeOriginalId,
+            title: title,
+            url: topic.url || '',
+            summary: summary,
+            thumbnail: topic.thumbnail,
+            metrics: topic.metrics || {
+                views: topic.views || topic.stars, // Fallback for CodeMine
+                likes: topic.likes, 
+                stars: topic.favorites || topic.stars
+            },
+            analysis_result: topic.analysis_result || {
+                reason: topic.reason, heat: topic.heat, aiSummary: topic.aiSummary
+            },
+            status: 'saved'
+        })
+        
+        router.push({ name: 'topic-detail', params: { id: saved.data.id } })
+        
+    } catch (e) {
+        console.error("Deep dive save failed", e)
+        const msg = e.response?.data?.detail ? JSON.stringify(e.response.data.detail) : e.message
+        alert('进入详情页失败: ' + msg)
+    }
+}
+
 const menuItems = [
-    { label: '🚀 再探 (Deep Dive)', action: openWorkbench },
+    { label: '🚀 再探 (Deep Dive)', action: () => handleDeepDive(selectedTopic.value) },
     { label: '📥 丢进选题库', action: async () => {
         if (!selectedTopic.value) return
         try {
-            await topicService.saveTopic(selectedTopic.value)
+            const topic = selectedTopic.value
+            // Normalize Data
+            const title = topic.title || topic.name
+            const summary = topic.summary || topic.aiSummary || topic.description || ''
+            const safeOriginalId = topic.original_id || topic.url || `mock-${topic.id}-${title}`
+            
+            await topicService.createTopic({
+                original_id: safeOriginalId,
+                title: title,
+                url: topic.url || '',
+                summary: summary,
+                thumbnail: topic.thumbnail,
+                metrics: topic.metrics || {
+                    views: topic.views || topic.stars, 
+                    likes: topic.likes, 
+                    stars: topic.favorites || topic.stars
+                },
+                analysis_result: topic.analysis_result || {
+                    reason: topic.reason, 
+                    heat: topic.heat,
+                    aiSummary: topic.aiSummary
+                },
+                status: 'saved'
+            })
             alert('已添加到选题库')
         } catch (e) {
-            alert('添加失败或已存在')
+            console.error(e)
+            const msg = e.response?.data?.detail ? JSON.stringify(e.response.data.detail) : e.message
+            alert('添加失败: ' + msg)
         }
     }}
 ]
@@ -214,7 +280,9 @@ const menuItems = [
         <div class="flex-1 bg-slate-50/50 rounded-2xl border-2 border-slate-100 border-dashed p-4 overflow-y-auto pr-2 custom-scrollbar relative">
            <!-- Tape visual -->
            <div class="absolute -top-3 left-1/2 -translate-x-1/2 w-32 h-8 bg-slate-200/40 rotate-1 z-0"></div>
-           <BuzzList :items="buzzList" class="relative z-10" />
+           <!-- Tape visual -->
+           <div class="absolute -top-3 left-1/2 -translate-x-1/2 w-32 h-8 bg-slate-200/40 rotate-1 z-0"></div>
+           <BuzzList :items="buzzList" class="relative z-10" @item-contextmenu="handleContextMenu" />
         </div>
       </section>
 

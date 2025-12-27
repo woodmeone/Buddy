@@ -110,10 +110,31 @@ const startAnalysis = async () => {
     isAnalyzing.value = false
 }
 
-const selectTopic = (topic) => {
-    // In real app, this might navigate to Topic Detail or open workbench
-    alert(`已选中：${topic.title}，准备生成脚本...`)
-    emit('close')
+const router = useRouter()
+import { useRouter } from 'vue-router'
+
+const selectTopic = async (topic) => {
+    // Save and Navigate
+    try {
+         const saved = await topicService.createTopic({
+            original_id: `rec-${topic.id}-${topic.title}`, // Stable ID for mock recs
+            title: topic.title,
+            url: '', 
+            summary: topic.reason, 
+            metrics: { heat: topic.heat },
+            analysis_result: {
+                domain: topic.domain,
+                reason: topic.reason
+            },
+            status: 'saved'
+        })
+        emit('close')
+        router.push({ name: 'topic-detail', params: { id: saved.data.id } })
+    } catch (e) {
+        console.error("Deep dive save failed", e)
+        const msg = e.response?.data?.detail ? JSON.stringify(e.response.data.detail) : e.message
+        alert('无法进入详情页：' + msg)
+    }
 }
 </script>
 
