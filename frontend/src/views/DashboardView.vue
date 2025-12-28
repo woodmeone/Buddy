@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Sparkles, RefreshCw } from 'lucide-vue-next'
 import { useSettings } from '../composables/useSettings'
@@ -11,6 +11,7 @@ import ContextMenu from '../components/common/ContextMenu.vue'
 import ScriptWorkbenchModal from '../components/workbench/ScriptWorkbenchModal.vue'
 import AnalysisResultModal from '../components/dashboard/AnalysisResultModal.vue'
 import { topicService } from '../services/topicService'
+import { dataService } from '../services/dataService'
 
 // --- Settings & Dynamic Columns ---
 // --- Settings & Dynamic Columns ---
@@ -212,6 +213,56 @@ const menuItems = [
         }
     }}
 ]
+
+// --- API Linkage ---
+const isLoadingFeed = ref(false)
+const loadFeed = async () => {
+    if (!currentPersona.value?.id) return
+    isLoadingFeed.value = true
+    try {
+        const feed = await dataService.getDiscoveryFeed(currentPersona.value.id)
+        
+        // Filter into columns
+        // Note: Backend doesn't strictly categorize yet, we'll map by source
+        const newVideos = []
+        const newRepos = []
+        
+        feed.forEach(item => {
+            if (item.source === 'Bilibili') {
+                newVideos.push({
+                    ...item,
+                    aiSummary: item.summary, // Map summary to what RivalCard expects
+                    author: item.author || '未知',
+                    authorAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.author}`
+                })
+            } else if (item.source?.toLowerCase().includes('github')) {
+                newRepos.push({
+                    ...item,
+                    name: item.title,
+                    description: item.summary,
+                    stars: item.metrics?.stars || 0
+                })
+            }
+        })
+        
+        if (newVideos.length > 0) videos.value = newVideos
+        if (newRepos.length > 0) repos.value = newRepos
+        
+    } catch (e) {
+        console.error("Failed to load feed", e)
+    } finally {
+        isLoadingFeed.value = false
+    }
+}
+
+onMounted(() => {
+    loadFeed()
+})
+
+watch(() => currentPersona.value?.id, (newVal) => {
+    if (newVal) loadFeed()
+})
+
 </script>
 
 <template>
