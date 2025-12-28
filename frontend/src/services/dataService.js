@@ -1,6 +1,11 @@
 import api from './api'
 
 export const dataService = {
+    // Manual Sync
+    async manualSync() {
+        return api.post('/dashboard/sync', {}, { timeout: 60000 })
+    },
+
     // Discovery Feed (Mock -> Backend Crawler)
     async getDiscoveryFeed(personaId, type = 'all') {
         if (!personaId) return []
@@ -29,27 +34,17 @@ export const dataService = {
         return res.data
     },
 
-    // Metadata Generation (Mock)
-    async generateMetadata(scriptContent) {
-        // 模拟延迟
-        await new Promise(resolve => setTimeout(resolve, 1000));
+    // Metadata Generation (AI Title, Info, Tags)
+    async generateMetadata(topicId) {
+        const res = await api.post(`/topics/${topicId}/generate-metadata`)
+        const topic = res.data
 
+        // Transform backend structure to what frontend expects
         return {
-            titles: [
-                "爆款标题：揭秘行业内幕，这三点你必须知道",
-                "新手必看！十分钟掌握核心技巧",
-                "为什么99%的人都做错了？真相在这里"
-            ],
-            intros: [
-                "大家好，我是WoodMe。今天我们来聊聊一个大家都很关心的话题...",
-                "你是不是也经常遇到这个问题？别担心，今天这条视频就帮你彻底解决...",
-                "这可能是今年最重要的一条视频，建议先收藏再看..."
-            ],
-            tags: [
-                ["行业干货", "新手教程", "避坑指南"],
-                ["实操演示", "经验分享", "职场进阶"],
-                ["深度解析", "思维认知", "效率提升"]
-            ]
+            titles: [topic.ai_title],
+            intros: [topic.ai_summary],
+            tags: [topic.analysis_result?.keywords || []],
+            targetAudience: topic.analysis_result?.targetAudience
         }
     }
 }

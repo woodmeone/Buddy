@@ -40,13 +40,16 @@ erDiagram
         int id PK
         int source_config_id FK
         string original_id "原始ID (防重, e.g. B站BV号, GitHub Repo ID)"
-        string title "标题"
+        string title "抓取的原始标题"
         string url "链接"
-        string summary "简介/AI摘要"
+        string summary "原视频/源简介"
         string thumbnail "封面图"
         
+        string ai_title "AI 优化的爆款标题"
+        string ai_summary "AI 生成的内容总结"
+        
         json metrics "数据指标 (JSON): {views: 1200, stars: 500, likes: 100}"
-        json analysis_result "AI分析结果 (JSON): {difficulty: 'Low', personaMatch: 'High', score: 98}"
+        json analysis_result "AI分析结果 (JSON): {difficulty, personaMatch, keywords: [], targetAudience: ''}"
         
         string status "状态: new (发现), saved (入库), rejected (忽略)"
         datetime published_at "发布时间"
@@ -101,17 +104,21 @@ erDiagram
 
 #### 3. Topic (选题)
 *   **id**: `int`
-*   **title**: `str`
+*   **title**: `str` (原始标题)
 *   **source**: `str` (来源平台标识，如 'GitHub', 'Bilibili')
 *   **url**: `str`
-*   **summary**: `text` (AI Analysis Summary)
+*   **summary**: `text` (原始简介)
+*   **aiTitle**: `str` (AI 生成的高转化标题)
+*   **aiSummary**: `text` (AI 生成的正式摘要)
 *   **score**: `float` (匹配度分数)
-*   **labels**: `list[str]` (前端用 labels, 对应 Tags)
+*   **labels**: `list[str]` (原始标签)
+*   **aiKeywords**: `list[str]` (AI 提取的关键词，用于 SEO/引流)
 *   **analysis**: `dict` (JSON)
     *   `difficulty`: `str`
     *   `personaMatch`: `str`
     *   `viralityPotential`: `str`
     *   `commercialValue`: `str`
+    *   `targetAudience`: `str` (受众画像)
 *   **status**: `enum` (new, saved)
 
 #### 4. ScriptTemplate (脚本模板)

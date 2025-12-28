@@ -1,7 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .database import create_db_and_tables
+from .database import create_db_and_tables, SessionLocal
 from .api import personas, topics, dashboard, scripts
+from .services.crawler import crawler_service
+from apscheduler.schedulers.background import BackgroundScheduler
+import logging
+
+# Configure Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("BuddyApp")
+
+def sync_job():
+    """Background sync job runner"""
+    logger.info("Starting background synchronization job...")
+    with SessionLocal() as session:
+        crawler_service.sync_all_sources(session)
+    logger.info("Background synchronization completed.")
 
 # Initialize FastAPI App
 app = FastAPI(title="Buddy System API", version="0.1.0")
@@ -24,9 +38,17 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     """
-    Run on startup: Create database tables if they don't exist
+    Run on startup: Create database tables and start background scheduler
     """
     create_db_and_tables()
+    
+    # Initialize Scheduler
+    scheduler = BackgroundScheduler()
+    # Run sync every 1 hour
+    scheduler.add_job(sync_job, 'interval', hours=1)
+    scheduler.start()
+    
+    logger.info("Backend services started and scheduler is active.")
 
 @app.get("/")
 def read_root():

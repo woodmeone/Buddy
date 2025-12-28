@@ -71,8 +71,12 @@ class TopicBase(SQLModel):
     summary: Optional[str] = None
     thumbnail: Optional[str] = None
     
+    # AI Generated Content (Deep Dive)
+    ai_title: Optional[str] = None
+    ai_summary: Optional[str] = None
+    
     metrics: Dict = Field(default={}, sa_column=Column(JSON), description="{views: 1200, stars: 500}")
-    analysis_result: Dict = Field(default={}, sa_column=Column(JSON), description="{difficulty: 'Low', personaMatch: 'High'}")
+    analysis_result: Dict = Field(default={}, sa_column=Column(JSON), description="{difficulty, personaMatch, keywords: [], targetAudience: ''}")
     
     status: str = Field(default="new", description="new, saved, rejected")
     published_at: Optional[datetime] = None
@@ -95,6 +99,8 @@ class TopicRead(TopicBase):
 class TopicUpdate(SQLModel):
     title: Optional[str] = None
     summary: Optional[str] = None
+    ai_title: Optional[str] = None
+    ai_summary: Optional[str] = None
     status: Optional[str] = None
     analysis_result: Optional[Dict] = None
     metrics: Optional[Dict] = None
@@ -136,6 +142,7 @@ class ScriptBase(SQLModel):
     template_id: Optional[int] = Field(default=None, foreign_key="scripttemplate.id")
     title: str
     content: str
+    outline: Optional[Dict] = Field(default={}, sa_column=Column(JSON))
     status: str = Field(default="draft")
 
 class Script(ScriptBase, table=True):

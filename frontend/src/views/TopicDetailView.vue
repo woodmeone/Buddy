@@ -25,10 +25,9 @@ const metadataRecommendations = ref(null)
 const isGeneratingMetadata = ref(false)
 
 const generateMetadataAction = async () => {
-    if (!generatedScript.value) return
     isGeneratingMetadata.value = true
     try {
-        metadataRecommendations.value = await dataService.generateMetadata(generatedScript.value)
+        metadataRecommendations.value = await dataService.generateMetadata(topicId)
     } catch (e) {
         console.error(e)
         alert('生成失败')
@@ -50,7 +49,16 @@ const loadData = async () => {
         // Best to use raw API import or add to service but I can't edit service *and* view in one file call.
         // I will use direct API call or just implement fetch here for now.
         // Actually, let's fix topicService later if needed, but for now I'll import api.
-        topic.value = await topicService.getTopic(topicId) // I will add this method or use API
+        topic.value = await topicService.getTopic(topicId)
+        
+        // If already has AI analysis, show it
+        if (topic.value.ai_title) {
+            metadataRecommendations.value = {
+                titles: [topic.value.ai_title],
+                intros: [topic.value.ai_summary],
+                tags: [topic.value.analysis_result?.keywords || []]
+            }
+        }
         
         // 2. Fetch Templates
         templates.value = await scriptService.getTemplates()

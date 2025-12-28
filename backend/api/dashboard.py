@@ -1,11 +1,19 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 from ..database import get_session
-from ..models import Persona
+from ..models import Persona, SourceConfig
 from ..services.crawler import crawler_service
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
+
+@router.post("/sync")
+def manual_sync(session: Session = Depends(get_session)):
+    """
+    Manually trigger background synchronization.
+    """
+    crawler_service.sync_all_sources(session)
+    return {"ok": True, "message": "Synchronization completed"}
 
 @router.get("/feed")
 def get_discovery_feed(persona_id: int, type: Optional[str] = None, session: Session = Depends(get_session)):

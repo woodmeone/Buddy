@@ -42,21 +42,49 @@ def delete_template(id: int, session: Session = Depends(get_session)):
     return {"ok": True}
 
 # --- Scripts (The generated ones) ---
-@router.post("/scripts/generate")
+@router.post("/scripts/generate", response_model=ScriptRead)
 def generate_script(payload: dict = Body(...), session: Session = Depends(get_session)):
     """
-    Mock Script Generation. 
-    In future: Call LLM with Topic content + Template.
+    Generate and persist a script for a topic.
+    Returns existing script if one already exists for this topic and template.
     """
     topic_id = payload.get("topic_id")
     template_id = payload.get("template_id")
     
+    if not topic_id:
+        raise HTTPException(status_code=400, detail="topic_id is required")
+
+    # Check for existing script
+    existing = session.exec(
+        select(Script).where(Script.topic_id == topic_id, Script.template_id == template_id)
+    ).first()
+    if existing:
+        return existing
+
+    # Get topic and template info for generation
+    topic = session.get(Topic, topic_id)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    
+    # Mock Generation logic
+    # In a real app, this would call an LLM with topic.title, topic.summary, etc.
     import time
     time.sleep(1) # Simulate LLM latency
     
-    return {
-        "content": f"# Video Script for Topic {topic_id}\n\n**Generated based on Template {template_id}**\n\n## Hook\nHello World! This is a generated script.\n\n## Content\n...\n"
-    }
+    title = f"AI Script for: {topic.title}"
+    content = f"# {topic.title}\n\n## AI Analysis Summary\n{topic.ai_summary or 'No AI summary yet.'}\n\n## Video Hook\nWelcome back! Today we are diving into..."
+    
+    db_script = Script(
+        topic_id=topic_id,
+        template_id=template_id,
+        title=title,
+        content=content,
+        status="final"
+    )
+    session.add(db_script)
+    session.commit()
+    session.refresh(db_script)
+    return db_script
 
 @router.get("/scripts/{id}", response_model=ScriptRead)
 def read_script(id: int, session: Session = Depends(get_session)):

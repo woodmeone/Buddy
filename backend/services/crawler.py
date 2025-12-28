@@ -1,14 +1,67 @@
-import random
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+from sqlmodel import Session, select
+from ..models import Topic, TopicTag, SourceConfig
 from .rss_service import rss_service
 from .bilibili_service import bilibili_service
+
+import random
 
 class CrawlerService:
     """
     Service to fetch data from external platforms.
     """
     
+    def sync_all_sources(self, session: Session):
+        """
+        Background task: Fetch all enabled sources and save to DB.
+        """
+        from ..models import SourceConfig
+        configs = session.exec(select(SourceConfig).where(SourceConfig.enabled == True)).all()
+        
+        # We process one by one to avoid overwhelming memory/network
+        for config in configs:
+            print(f"Syncing source: {config.name} ({config.type})...")
+            items = self.fetch_feed([config])
+            
+            for item in items:
+                # Check duplication
+                existing = session.exec(
+                    select(Topic).where(Topic.original_id == item["original_id"])
+                ).first()
+                
+                if existing:
+                    # Update status or metrics if needed? 
+                    # For now just update metrics
+                    existing.metrics = item.get("metrics", {})
+                    session.add(existing)
+                    continue
+                
+                # New Topic
+                db_topic = Topic(
+                    source_config_id=item["source_config_id"],
+                    original_id=item["original_id"],
+                    title=item["title"],
+                    url=item["url"],
+                    summary=item["summary"],
+                    thumbnail=item["thumbnail"],
+                    metrics=item.get("metrics", {}),
+                    analysis_result=item.get("analysis_result", {}),
+                    status="new",
+                    published_at=datetime.fromisoformat(item["published_at"]) if item.get("published_at") else None
+                )
+                session.add(db_topic)
+                session.commit()
+                session.refresh(db_topic)
+                
+                # Add Tags/Labels
+                labels = item.get("labels", [])
+                for label_name in labels:
+                    tag = TopicTag(topic_id=db_topic.id, tag_name=label_name)
+                    session.add(tag)
+                
+                session.commit()
+
     def fetch_feed(self, source_configs: List) -> List[Dict]:
         """
         Main entry point. Aggregates data from all enabled source configs.

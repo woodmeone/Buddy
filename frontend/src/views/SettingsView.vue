@@ -1,8 +1,9 @@
 <script setup>
 import { ref, watch } from 'vue'
-import { Save, User, Hash, MonitorPlay, Rss, Flame, ChevronDown } from 'lucide-vue-next'
+import { Save, User, Hash, MonitorPlay, Rss, Flame, ChevronDown, RefreshCw } from 'lucide-vue-next'
 import { useSettings } from '../composables/useSettings'
 import PersonaManager from '../components/settings/PersonaManager.vue'
+import { dataService } from '../services/dataService'
 
 const { currentPersona, saveCurrentPersona, currentPersonaId } = useSettings()
 
@@ -42,6 +43,20 @@ const addHotSource = () => {
     if (currentPersona.value) {
         if (!currentPersona.value.hotSources) currentPersona.value.hotSources = []
         currentPersona.value.hotSources.push({ id: Date.now().toString(), name: '', enabled: true })
+    }
+}
+
+const isSyncing = ref(false)
+const handleSync = async () => {
+    isSyncing.value = true
+    try {
+        await dataService.manualSync()
+        alert('同步完成！新内容已加入选题库。')
+    } catch (e) {
+        console.error(e)
+        alert('同步失败，请检查网络或配置。')
+    } finally {
+        isSyncing.value = false
     }
 }
 
@@ -178,7 +193,10 @@ const handleSave = async () => {
                         <div class="p-4 space-y-3">
                             <div v-for="(item, index) in (currentPersona.bilibiliList || [])" :key="index" class="flex items-center gap-3">
                                 <input v-model="item.name" placeholder="备注名" class="bg-white border text-sm rounded px-2 py-1 w-24 outline-none focus:border-indigo-400" />
-                                <input v-model="item.uid" placeholder="UID" class="flex-1 bg-white border text-sm rounded px-2 py-1 outline-none focus:border-indigo-400 font-mono" />
+                                <div class="flex-1 flex flex-col gap-1">
+                                    <input v-model="item.uid" placeholder="UID (数字)" class="bg-white border text-sm rounded px-2 py-1 outline-none focus:border-indigo-400 font-mono" />
+                                    <span class="text-[10px] text-slate-400">UID 为个人空间链接结尾的数字 (e.g. 2267573)</span>
+                                </div>
                                 <button 
                                     @click="item.enabled = !item.enabled"
                                     class="w-8 h-4 rounded-full transition-colors relative flex items-center p-0.5"
@@ -246,10 +264,18 @@ const handleSave = async () => {
             </div>
         </div>
 
-        <button @click="handleSave" class="absolute bottom-8 right-8 bg-black text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:-translate-y-1 transition-transform z-10">
-            <Save class="w-5 h-5" />
-            保存配置
-        </button>
+        <div class="absolute bottom-8 right-8 flex gap-3 z-10">
+            <button @click="handleSync" 
+                :disabled="isSyncing"
+                class="bg-white border border-slate-200 text-slate-700 px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:border-indigo-300 transition-all disabled:opacity-50">
+                <RefreshCw class="w-5 h-5" :class="isSyncing ? 'animate-spin' : ''" />
+                {{ isSyncing ? '同步中...' : '立即同步' }}
+            </button>
+            <button @click="handleSave" class="bg-black text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:-translate-y-1 transition-transform">
+                <Save class="w-5 h-5" />
+                保存配置
+            </button>
+        </div>
     </div>
     
     <div v-else class="flex-1 flex items-center justify-center text-slate-400">
