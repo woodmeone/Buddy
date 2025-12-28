@@ -23,8 +23,8 @@ def get_discovery_feed(persona_id: int, type: Optional[str] = None, session: Ses
     # Note: In async mode we'd need select options, sync mode does lazy load automatically on access if session open.
     configs = persona.source_configs
     
-    # 3. Use Crawler Service to fetch (mock) data
-    feed_items = crawler_service.generate_feed(configs)
+    # 3. Use Crawler Service to fetch real data
+    feed_items = crawler_service.fetch_feed(configs)
     
     # 4. Filter by type if requested
     if type:

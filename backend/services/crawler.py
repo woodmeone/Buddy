@@ -1,14 +1,15 @@
 import random
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
+from .rss_service import rss_service
+from .bilibili_service import bilibili_service
 
-class MockCrawlerService:
+class CrawlerService:
     """
-    Simulates fetching data from external platforms (Bilibili, GitHub, RSS).
-    Generates realistic looking mock data based on input configuration.
+    Service to fetch data from external platforms.
     """
     
-    def generate_feed(self, source_configs: List) -> List[Dict]:
+    def fetch_feed(self, source_configs: List) -> List[Dict]:
         """
         Main entry point. Aggregates data from all enabled source configs.
         """
@@ -19,138 +20,59 @@ class MockCrawlerService:
                 continue
                 
             items = []
+            # NEW: Priority for Bilibili SDK
             if config.type == "bilibili_user":
-                items = self._mock_bilibili(config)
+                uid = config.config_data.get("uid")
+                if uid:
+                    try:
+                        # Convert to int if it's a string from JSON
+                        items = bilibili_service.fetch_user_videos(int(uid))
+                    except Exception as e:
+                        print(f"Error fetching real Bilibili data for {uid}: {e}")
+                        # Fallback to RSSHub if SDK fails
+                        url = f"https://rsshub.app/bilibili/user/video/{uid}"
+                        try:
+                            items = rss_service.fetch_and_parse(url)
+                        except: pass
+            
             elif config.type == "rss_feed":
-                # Treat RSS as GitHub for now if url contains github, else generic
-                if "github" in (config.config_data.get("url") or ""):
-                    items = self._mock_github(config)
-                else:
-                    items = self._mock_rss(config)
-            elif config.type == "hot_list":
-                items = self._mock_hot_list(config)
+                url = config.config_data.get("url")
+                if url:
+                    try:
+                        items = rss_service.fetch_and_parse(url)
+                    except Exception as e:
+                        print(f"Error fetching RSS {url}: {e}")
+            
+            # Tag items and polish
+            for item in items:
+                item["source_config_id"] = config.id
+                
+                # Enrich Bilibili data if it's a Bilibili item
+                if item.get("source") == "Bilibili" and item.get("original_id"):
+                    details = bilibili_service.get_video_details(item["original_id"])
+                    if details:
+                        # Update metrics
+                        if "metrics" in details:
+                            item["metrics"].update(details["metrics"])
+                        
+                        # Set tags (frontend uses 'labels' mapping)
+                        item["labels"] = details.get("tags", [])
+                        
+                        # Update title/summary if necessary (ensure high quality)
+                        if details.get("title"):
+                            item["title"] = details["title"]
+                        if details.get("summary"):
+                            item["summary"] = details["summary"]
+                
+                item["analysis_result"] = self._random_analysis()
+                item["score"] = round(random.uniform(70, 99), 1)
+                item["status"] = "new"
             
             feed_items.extend(items)
             
-        # Sort by freshness (randomized slightly)
-        feed_items.sort(key=lambda x: x["published_at"], reverse=True)
+        # Sort by freshness
+        feed_items.sort(key=lambda x: x.get("published_at") or "", reverse=True)
         return feed_items
-
-    def _mock_bilibili(self, config) -> List[Dict]:
-        """Generates mock Bilibili videos for a specific UP owner"""
-        uid = config.config_data.get("uid", "000")
-        name = config.name or f"UP主{uid}"
-        
-        templates = [
-            f"【{name}】DeepSeek vs ChatGPT 深度测评，谁才是最强AI？",
-            f"还在手写代码？这个 {name} 推荐的 AI 工具太强了！",
-            f"耗时30天，我用 AI 做了一个 {name} 风格的视频",
-            f"突发！OpenAI 发布 Sora 2.0，{name} 带你首发体验",
-            f"前端已死？{name} 聊聊 2024 年程序员的出路"
-        ]
-        
-        items = []
-        count = random.randint(1, 4) # 1-4 new videos per source
-        for _ in range(count):
-            title = random.choice(templates)
-            views = random.randint(5000, 1000000)
-            items.append({
-                "id": random.randint(1000000, 9999999),
-                "original_id": f"BV{random.randint(100000, 999999)}",
-                "title": title,
-                "source": "Bilibili",
-                "url": f"https://www.bilibili.com/video/BV{random.randint(100000, 999999)}",
-                "summary": f"{title} - 视频详细解读。播放量 {views}，评论区热议中。",
-                "metrics": {"views": views, "likes": int(views * 0.1)},
-                "analysis_result": self._random_analysis(),
-                "status": "new",
-                "published_at": self._random_time(),
-                "score": round(random.uniform(70, 99), 1),
-                "thumbnail": f"https://api.dicebear.com/7.x/shapes/svg?seed={title}"
-            })
-        return items
-
-    def _mock_github(self, config) -> List[Dict]:
-        """Generates mock GitHub Trending repos"""
-        topics = ["Agent", "RAG", "LLM", "Vue3", "Rust", "FastAPI"]
-        
-        items = []
-        count = random.randint(2, 5)
-        for _ in range(count):
-            topic = random.choice(topics)
-            name = f"{topic}-{random.choice(['Next', 'Pro', 'Lite', 'Zero', 'Copilot'])}"
-            stars = random.randint(1000, 50000)
-            
-            items.append({
-                "id": random.randint(1000000, 9999999),
-                "original_id": f"gh-{name}",
-                "title": f"{name}: The Ultimate {topic} Framework",
-                "source": "GitHub",
-                "url": f"https://github.com/example/{name}",
-                "summary": f"A lightweight, high-performance {topic} library. Gained {random.randint(100, 2000)} stars today.",
-                "metrics": {"stars": stars, "forks": int(stars * 0.2)},
-                "analysis_result": self._random_analysis(),
-                "status": "new",
-                "published_at": self._random_time(),
-                "score": round(random.uniform(80, 99), 1),
-                "thumbnail": None
-            })
-        return items
-
-    def _mock_rss(self, config) -> List[Dict]:
-        """Generates mock generic RSS articles"""
-        site_name = config.name or "TechBlog"
-        
-        templates = [
-            f"{site_name}: Why Python is still king in 2024",
-            f"Understanding RAG Architecture - {site_name}",
-            f"10 Tips for Senior Engineers from {site_name}",
-            f"The future of Web Development: {site_name} predictions"
-        ]
-        
-        items = []
-        count = random.randint(1, 3)
-        for _ in range(count):
-            title = random.choice(templates)
-            items.append({
-                "id": random.randint(1000000, 9999999),
-                "original_id": f"rss-{random.randint(1000, 9999)}",
-                "title": title,
-                "source": "RSS",
-                "url": "https://example.com/blog/article",
-                "summary": f"Latest article from {site_name}. Discusses deep technical concepts.",
-                "metrics": {},
-                "analysis_result": self._random_analysis(),
-                "status": "new",
-                "published_at": self._random_time(),
-                "score": round(random.uniform(60, 90), 1),
-                "thumbnail": None
-            })
-        return items
-        
-    def _mock_hot_list(self, config) -> List[Dict]:
-        """Generates mock Hot List items"""
-        platform = config.name
-        
-        items = []
-        count = random.randint(3, 6)
-        for i in range(count):
-            heat = random.randint(500000, 5000000)
-            items.append({
-                "id": random.randint(1000000, 9999999),
-                "original_id": f"hot-{platform}-{i}",
-                "title": f"【{platform}热搜】全民讨论 AI 替代人工 Issue #{i}",
-                "source": platform,
-                "url": "https://weibo.com/hot/1",
-                "summary": f"当前热度 {heat}。社会影响巨大。",
-                "metrics": {"heat": heat},
-                "analysis_result": self._random_analysis(),
-                "status": "new",
-                "published_at": self._random_time(),
-                "score": round(random.uniform(70, 95), 1),
-                "thumbnail": None
-            })
-        return items
 
     def _random_time(self):
         """Returns ISO format time within last 24 hours"""
@@ -164,4 +86,4 @@ class MockCrawlerService:
             "commercialValue": random.choice(["Low", "Medium", "High"])
         }
 
-crawler_service = MockCrawlerService()
+crawler_service = CrawlerService()

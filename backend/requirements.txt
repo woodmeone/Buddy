@@ -4,3 +4,6 @@ sqlmodel
 requests
 pytest
 httpx
+feedparser
+beautifulsoup4
+bilibili-api-python
