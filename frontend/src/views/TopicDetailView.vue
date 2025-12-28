@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, ExternalLink, Share2, FileText, Code2, Tag, Sparkles, Copy, Trash2, Edit } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, Share2, FileText, Code2, Tag, Sparkles, Copy, Trash2, Edit, Heading, AlignLeft, Hash, Lightbulb } from 'lucide-vue-next'
 import { topicService } from '../services/topicService'
 import { scriptService } from '../services/scriptService'
 import { dataService } from '../services/dataService'
@@ -19,6 +19,23 @@ const manualPrompt = ref('')
 const isGenerating = ref(false)
 const generatedScript = ref('')
 const isEditingScript = ref(false)
+
+// Metadata Generation
+const metadataRecommendations = ref(null)
+const isGeneratingMetadata = ref(false)
+
+const generateMetadataAction = async () => {
+    if (!generatedScript.value) return
+    isGeneratingMetadata.value = true
+    try {
+        metadataRecommendations.value = await dataService.generateMetadata(generatedScript.value)
+    } catch (e) {
+        console.error(e)
+        alert('生成失败')
+    } finally {
+        isGeneratingMetadata.value = false
+    }
+}
 
 const loadData = async () => {
     isLoading.value = true
@@ -247,7 +264,17 @@ onMounted(loadData)
                 <!-- Toolbar -->
                 <div class="h-12 border-b border-slate-200 bg-white flex items-center justify-between px-4">
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">Markdown Preview</span>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-3">
+                         <button 
+                            @click="generateMetadataAction"
+                            :disabled="isGeneratingMetadata || !generatedScript"
+                            class="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Sparkles class="w-4 h-4" :class="isGeneratingMetadata ? 'animate-spin' : ''" />
+                            {{ isGeneratingMetadata ? '生成中...' : '生成标题/简介' }}
+                        </button>
+                        <div class="h-4 w-px bg-slate-200"></div>
+                        <div class="flex items-center gap-2">
                         <button @click="copyScript" class="p-1.5 hover:bg-slate-100 rounded text-slate-500 transition" title="Copy">
                             <Copy class="w-4 h-4" />
                         </button>
@@ -255,6 +282,7 @@ onMounted(loadData)
                             <Edit class="w-4 h-4" />
                         </button>
                     </div>
+                </div>
                 </div>
                 
                 <!-- Editor Area -->
@@ -264,6 +292,51 @@ onMounted(loadData)
                     placeholder="Script content..."
                 ></textarea>
             </div>
+        </div>
+
+        <!-- Recommendations Column -->
+        <div v-if="metadataRecommendations" class="w-80 min-w-[320px] border-l border-slate-200 bg-white overflow-y-auto p-5 flex flex-col gap-8 animate-in slide-in-from-right duration-300">
+            <!-- Titles -->
+            <section>
+                 <h3 class="font-bold text-slate-800 mb-3 flex items-center gap-2 text-sm">
+                    <Heading class="w-4 h-4 text-pink-500" /> 推荐标题
+                 </h3>
+                 <div class="space-y-3">
+                     <div v-for="(item, i) in metadataRecommendations.titles" :key="i" class="group relative">
+                         <div class="p-3 bg-slate-50 hover:bg-indigo-50 rounded-lg border border-slate-100 hover:border-indigo-100 transition-colors cursor-pointer" @click="navigator.clipboard.writeText(item); alert('已复制')">
+                            <p class="text-sm text-slate-700 leading-snug pr-2">{{ item }}</p>
+                         </div>
+                     </div>
+                 </div>
+            </section>
+
+            <!-- Intros -->
+            <section>
+                 <h3 class="font-bold text-slate-800 mb-3 flex items-center gap-2 text-sm">
+                    <AlignLeft class="w-4 h-4 text-orange-500" /> 推荐简介
+                 </h3>
+                 <div class="space-y-3">
+                     <div v-for="(item, i) in metadataRecommendations.intros" :key="i" class="group relative">
+                         <div class="p-3 bg-slate-50 hover:bg-indigo-50 rounded-lg border border-slate-100 hover:border-indigo-100 transition-colors cursor-pointer" @click="navigator.clipboard.writeText(item); alert('已复制')">
+                            <p class="text-xs text-slate-600 leading-relaxed">{{ item }}</p>
+                         </div>
+                     </div>
+                 </div>
+            </section>
+
+            <!-- Tags -->
+            <section>
+                 <h3 class="font-bold text-slate-800 mb-3 flex items-center gap-2 text-sm">
+                    <Hash class="w-4 h-4 text-blue-500" /> 推荐标签
+                 </h3>
+                 <div class="space-y-3">
+                     <div v-for="(tags, i) in metadataRecommendations.tags" :key="i" class="group relative">
+                         <div class="p-3 bg-slate-50 hover:bg-indigo-50 rounded-lg border border-slate-100 hover:border-indigo-100 transition-colors cursor-pointer flex flex-wrap gap-2" @click="navigator.clipboard.writeText(tags.join(' ')); alert('已复制')">
+                            <span v-for="tag in tags" :key="tag" class="px-2 py-0.5 bg-white rounded border border-slate-200 text-xs text-slate-500">#{{ tag }}</span>
+                         </div>
+                     </div>
+                 </div>
+            </section>
         </div>
     </div>
   </div>

@@ -70,8 +70,13 @@ const activeTopic = ref(null)
 
 const showWorkbench = ref(false)
 
-const openWorkbench = () => {
-    showWorkbench.value = true
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
+const navigateToDeepDive = () => {
+    if (!activeTopic.value) return
+    router.push({ name: 'topic-detail', params: { id: activeTopic.value.id } })
 }
 
 const deleteSingle = async () => {
@@ -90,7 +95,7 @@ const handleContextMenu = (e, topic) => {
 
 // Context Menu Items
 const menuItems = [
-    { label: '🚀 再探 (Deep Dive)', action: openWorkbench },
+    { label: '🚀 再探 (Deep Dive)', action: navigateToDeepDive },
     { label: '🗑️ 删除选题', action: deleteSingle }
 ]
 
