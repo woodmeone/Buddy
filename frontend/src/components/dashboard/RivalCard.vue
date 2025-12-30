@@ -8,7 +8,7 @@
     <div class="flex gap-3">
         <!-- Thumbnail (Left) -->
         <div class="relative w-32 shrink-0 aspect-video bg-slate-200 rounded-lg overflow-hidden self-start">
-        <img :src="video.thumbnail" :alt="video.title" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" />
+        <img :src="video.thumbnail" :alt="video.title" referrerpolicy="no-referrer" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" />
         <div class="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors"></div>
         
         <!-- Duration / Overlay -->
@@ -62,10 +62,10 @@
              <div class="bg-indigo-50 rounded-lg p-2.5 mt-1 border border-indigo-100">
                  <div class="flex gap-2 items-start">
                     <Sparkles class="w-3.5 h-3.5 text-indigo-600 mt-0.5 shrink-0" />
-                    <div class="flex-1">
-                        <p class="text-xs font-bold text-indigo-600 mb-0.5">AI 总结</p>
-                        <p class="text-xs text-slate-700 leading-relaxed font-medium">
-                            {{ video.aiSummary || 'AI 正在分析该视频的核心亮点与槽点...' }}
+                     <div class="flex-1">
+                        <p class="text-xs font-bold text-indigo-600 mb-0.5">视频简介</p>
+                        <p class="text-xs text-slate-700 leading-relaxed font-medium line-clamp-4">
+                            {{ video.summary || '暂无简介' }}
                         </p>
                     </div>
                 </div>
@@ -79,7 +79,7 @@
 import { ref } from 'vue'
 import { Play, Sparkles, PlayCircle, ThumbsUp, Star } from 'lucide-vue-next'
 
-defineProps({
+const props = defineProps({
   video: {
     type: Object,
     required: true

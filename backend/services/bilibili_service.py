@@ -94,6 +94,7 @@ class BilibiliService:
                     "url": f"https://www.bilibili.com/video/{v.get('bvid')}",
                     "summary": v.get("description"),
                     "thumbnail": v.get("pic"),
+                    "author": v.get("author"),
                     "metrics": {
                         "views": v.get("play"),
                         "comments": v.get("comment"),

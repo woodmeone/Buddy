@@ -1,6 +1,6 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session
+from sqlmodel import Session, select
 from ..database import get_session
 from ..models import Persona, SourceConfig
 from ..services.crawler import crawler_service
@@ -36,8 +36,8 @@ def get_discovery_feed(persona_id: int, type: Optional[str] = None, session: Ses
     # 2. Fetch Topics from DB
     topics = session.exec(
         select(Topic).where(Topic.source_config_id.in_(config_ids))
+        .where(Topic.status == "new")
         .order_by(Topic.published_at.desc(), Topic.saved_at.desc())
-        .limit(50)
     ).all()
     
     # 3. Transform for frontend (ensure 'source' exists)
@@ -58,6 +58,7 @@ def get_discovery_feed(persona_id: int, type: Optional[str] = None, session: Ses
             "url": t.url,
             "summary": t.summary,
             "thumbnail": t.thumbnail,
+            "author": t.author,
             "metrics": t.metrics,
             "analysis_result": t.analysis_result,
             "source": source_str,

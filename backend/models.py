@@ -42,6 +42,7 @@ class SourceConfigBase(SQLModel):
     name: str
     config_data: Dict = Field(default={}, sa_column=Column(JSON), description="{uid: '...', url: '...'}")
     enabled: bool = Field(default=True)
+    views_threshold: int = Field(default=0, description="Minimum views to display")
 
 class SourceConfig(SourceConfigBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -70,6 +71,7 @@ class TopicBase(SQLModel):
     url: str
     summary: Optional[str] = None
     thumbnail: Optional[str] = None
+    author: Optional[str] = None
     
     # AI Generated Content (Deep Dive)
     ai_title: Optional[str] = None

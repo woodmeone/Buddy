@@ -217,26 +217,36 @@ const menuItems = [
 // --- API Linkage ---
 const isLoadingFeed = ref(false)
 const loadFeed = async () => {
-    if (!currentPersona.value?.id) return
+    if (!currentPersona.value?.id) {
+        console.log('[Dashboard] No persona selected, skipping feed load')
+        return
+    }
     isLoadingFeed.value = true
+    console.log('[Dashboard] Loading feed for persona:', currentPersona.value.id)
     try {
         const feed = await dataService.getDiscoveryFeed(currentPersona.value.id)
+        console.log('[Dashboard] Received feed items:', feed.length)
         
-        // Filter into columns
-        // Note: Backend doesn't strictly categorize yet, we'll map by source
-        const newVideos = []
-        const newRepos = []
+        // Reset to clear mock data
+        videos.value = []
+        repos.value = []
         
         feed.forEach(item => {
             if (item.source === 'Bilibili') {
-                newVideos.push({
+                const proto_pic = (url) => url?.startsWith('//') ? `https:${url}` : url
+                videos.value.push({
                     ...item,
-                    aiSummary: item.summary, // Map summary to what RivalCard expects
-                    author: item.author || '未知',
-                    authorAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.author}`
+                    thumbnail: proto_pic(item.thumbnail),
+                    summary: item.summary, // The original introduction for hover
+                    aiSummary: '', // Leave empty until 'Deep Dive'
+                    author: item.author || '未知UP主',
+                    authorAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.author || item.id || 'default'}`,
+                    views: item.metrics?.views || 0,
+                    likes: item.metrics?.likes || 0,
+                    url: item.url
                 })
-            } else if (item.source?.toLowerCase().includes('github')) {
-                newRepos.push({
+            } else if (item.source?.toLowerCase().includes('rss') || item.source?.toLowerCase().includes('github')) {
+                repos.value.push({
                     ...item,
                     name: item.title,
                     description: item.summary,
@@ -244,12 +254,9 @@ const loadFeed = async () => {
                 })
             }
         })
-        
-        if (newVideos.length > 0) videos.value = newVideos
-        if (newRepos.length > 0) repos.value = newRepos
-        
+        console.log('[Dashboard] Processed videos:', videos.value.length)
     } catch (e) {
-        console.error("Failed to load feed", e)
+        console.error("[Dashboard] Failed to load feed", e)
     } finally {
         isLoadingFeed.value = false
     }

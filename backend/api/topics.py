@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Dict
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import Session, select
@@ -40,7 +41,9 @@ def generate_topic_metadata(topic_id: int, session: Session = Depends(get_sessio
 
 @router.get("/", response_model=List[TopicRead])
 def read_topics(session: Session = Depends(get_session)):
-    topics = session.exec(select(Topic).order_by(Topic.saved_at.desc())).all()
+    topics = session.exec(
+        select(Topic).where(Topic.status == "saved").order_by(Topic.saved_at.desc())
+    ).all()
     return topics
 
 @router.post("/", response_model=TopicRead)
@@ -48,10 +51,18 @@ def create_topic(topic: TopicCreate, session: Session = Depends(get_session)):
     # Check for duplicate by original_id
     existing = session.exec(select(Topic).where(Topic.original_id == topic.original_id)).first()
     if existing:
-        # Optional: update existing? For now, just return it to be idempotent
+        # If it was 'new' (from discovery feed), promote it to 'saved'
+        if existing.status == "new":
+            existing.status = "saved"
+            existing.saved_at = datetime.utcnow()
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
         return existing
 
     db_topic = Topic.from_orm(topic)
+    # Ensure status is 'saved' when manually creating/adding from dashboard
+    db_topic.status = "saved"
     session.add(db_topic)
     session.commit()
     session.refresh(db_topic)

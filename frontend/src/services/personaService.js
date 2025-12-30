@@ -59,6 +59,7 @@ function transformSourceToBackend(item, type) {
         type: type,
         name: item.name,
         enabled: item.enabled,
+        views_threshold: parseInt(item.viewsThreshold || 0),
         config_data: config_data
     }
 }
@@ -90,7 +91,7 @@ function transformFromBackend(p) {
 function fromSourceConfig(sc) {
     // Backend: {id, type, config_data: {uid}, name, enabled}
     // Frontend Bilibili: {name, uid, enabled}
-    const common = { id: sc.id, name: sc.name, enabled: sc.enabled }
+    const common = { id: sc.id, name: sc.name, enabled: sc.enabled, viewsThreshold: sc.views_threshold || 0 }
     if (sc.type === 'bilibili_user') return { ...common, uid: sc.config_data?.uid }
     if (sc.type === 'rss_feed') return { ...common, url: sc.config_data?.url }
     if (sc.type === 'hot_list') return { ...common } // Hot list usually just name + enabled

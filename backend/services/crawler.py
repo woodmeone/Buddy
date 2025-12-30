@@ -22,6 +22,23 @@ class CrawlerService:
         # We process one by one to avoid overwhelming memory/network
         for config in configs:
             print(f"Syncing source: {config.name} ({config.type})...")
+            
+            # Clear existing "new" topics for this config before fetching fresh ones
+            # This ensures only the latest data is shown in Discovery Feed
+            from sqlmodel import delete
+            session.exec(
+                delete(Topic)
+                .where(Topic.source_config_id == config.id)
+                .where(Topic.status == "new")
+            )
+            # Zombie/Orphan cleanup
+            session.exec(
+                delete(Topic)
+                .where(Topic.source_config_id == None)
+                .where(Topic.status == "new")
+            )
+            session.commit()
+
             items = self.fetch_feed([config])
             
             for item in items:
@@ -31,10 +48,17 @@ class CrawlerService:
                 ).first()
                 
                 if existing:
-                    # Update status or metrics if needed? 
-                    # For now just update metrics
+                    # Update source_config_id if missing or changed (orphan fix)
+                    if existing.source_config_id != item["source_config_id"]:
+                        existing.source_config_id = item["source_config_id"]
+                    
+                    # Update author (Remark might have changed) and metrics
+                    existing.author = item.get("author")
                     existing.metrics = item.get("metrics", {})
+                    existing.thumbnail = item.get("thumbnail")
+                    
                     session.add(existing)
+                    session.commit()
                     continue
                 
                 # New Topic
@@ -45,6 +69,7 @@ class CrawlerService:
                     url=item["url"],
                     summary=item["summary"],
                     thumbnail=item["thumbnail"],
+                    author=item.get("author"),
                     metrics=item.get("metrics", {}),
                     analysis_result=item.get("analysis_result", {}),
                     status="new",
@@ -96,9 +121,14 @@ class CrawlerService:
                     except Exception as e:
                         print(f"Error fetching RSS {url}: {e}")
             
-            # Tag items and polish
+                # Tag items and polish
             for item in items:
                 item["source_config_id"] = config.id
+                # Prioritize config.name (Remark) as author
+                if config.name:
+                    item["author"] = config.name
+                elif not item.get("author"):
+                    item["author"] = "采集UP主"
                 
                 # Enrich Bilibili data if it's a Bilibili item
                 if item.get("source") == "Bilibili" and item.get("original_id"):
@@ -117,11 +147,18 @@ class CrawlerService:
                         if details.get("summary"):
                             item["summary"] = details["summary"]
                 
+                # Filter by views_threshold
+                views = item.get("metrics", {}).get("views", 0)
+                if views < config.views_threshold:
+                    print(f"Skipping video '{item['title']}' due to views threshold ({views} < {config.views_threshold})")
+                    continue
+                
                 item["analysis_result"] = self._random_analysis()
                 item["score"] = round(random.uniform(70, 99), 1)
                 item["status"] = "new"
-            
-            feed_items.extend(items)
+                
+                # Only add to results if it passed all processing (including filter)
+                feed_items.append(item)
             
         # Sort by freshness
         feed_items.sort(key=lambda x: x.get("published_at") or "", reverse=True)

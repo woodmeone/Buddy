@@ -28,7 +28,7 @@ const removeTag = (tag) => {
 const addBilibiliUid = () => {
     if (currentPersona.value) {
         if (!currentPersona.value.bilibiliList) currentPersona.value.bilibiliList = []
-        currentPersona.value.bilibiliList.push({ name: '', uid: '', enabled: true })
+        currentPersona.value.bilibiliList.push({ name: '', uid: '', enabled: true, viewsThreshold: 0 })
     }
 }
 
@@ -49,11 +49,13 @@ const addHotSource = () => {
 const isSyncing = ref(false)
 const handleSync = async () => {
     isSyncing.value = true
+    console.log('[Settings] Starting manual sync...')
     try {
         await dataService.manualSync()
-        alert('同步完成！新内容已加入选题库。')
+        console.log('[Settings] Sync successful')
+        alert('同步完成！新情报已抓取，请回到情报大盘查看。')
     } catch (e) {
-        console.error(e)
+        console.error('[Settings] Sync failed', e)
         alert('同步失败，请检查网络或配置。')
     } finally {
         isSyncing.value = false
@@ -196,6 +198,10 @@ const handleSave = async () => {
                                 <div class="flex-1 flex flex-col gap-1">
                                     <input v-model="item.uid" placeholder="UID (数字)" class="bg-white border text-sm rounded px-2 py-1 outline-none focus:border-indigo-400 font-mono" />
                                     <span class="text-[10px] text-slate-400">UID 为个人空间链接结尾的数字 (e.g. 2267573)</span>
+                                </div>
+                                <div class="flex flex-col gap-1 w-20">
+                                    <input v-model.number="item.viewsThreshold" type="number" placeholder="阈值" class="bg-white border text-sm rounded px-2 py-1 outline-none focus:border-indigo-400 font-mono" />
+                                    <span class="text-[10px] text-slate-400">播放量阈值</span>
                                 </div>
                                 <button 
                                     @click="item.enabled = !item.enabled"

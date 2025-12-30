@@ -76,7 +76,8 @@ def update_persona_sources(persona_id: int, sources: List[SourceConfig], session
             type=s.type,
             name=s.name,
             config_data=s.config_data,
-            enabled=s.enabled
+            enabled=s.enabled,
+            views_threshold=s.views_threshold
         )
         session.add(new_source)
         new_configs.append(new_source)
