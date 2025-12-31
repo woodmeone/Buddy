@@ -14,78 +14,46 @@ class CrawlerService:
     
     def sync_all_sources(self, session: Session):
         """
-        Background task: Fetch all enabled sources and save to DB.
+        Background task: Fetch all enabled sources and save to Redis cache (TopHub style).
         """
-        from ..models import SourceConfig
-        configs = session.exec(select(SourceConfig).where(SourceConfig.enabled == True)).all()
+        from .cache_service import cache_service
+        from ..models import Persona
         
-        # We process one by one to avoid overwhelming memory/network
-        for config in configs:
-            print(f"Syncing source: {config.name} ({config.type})...")
+        # 1. Get all personas to group configs
+        personas = session.exec(select(Persona)).all()
+        
+        for persona in personas:
+            print(f"Syncing all sources for persona: {persona.name}...")
             
-            # Clear existing "new" topics for this config before fetching fresh ones
-            # This ensures only the latest data is shown in Discovery Feed
-            from sqlmodel import delete
-            session.exec(
-                delete(Topic)
-                .where(Topic.source_config_id == config.id)
-                .where(Topic.status == "new")
-            )
-            # Zombie/Orphan cleanup
-            session.exec(
-                delete(Topic)
-                .where(Topic.source_config_id == None)
-                .where(Topic.status == "new")
-            )
-            session.commit()
-
-            items = self.fetch_feed([config])
+            # 2. Aggregated feed for this persona
+            persona_items = []
             
-            for item in items:
-                # Check duplication
-                existing = session.exec(
-                    select(Topic).where(Topic.original_id == item["original_id"])
-                ).first()
+            configs = [c for c in persona.source_configs if c.enabled]
+            if not configs:
+                continue
                 
-                if existing:
-                    # Update source_config_id if missing or changed (orphan fix)
-                    if existing.source_config_id != item["source_config_id"]:
-                        existing.source_config_id = item["source_config_id"]
+            # 3. Fetch data for each config
+            for config in configs:
+                print(f"  Fetching: {config.name} ({config.type})...")
+                items = self.fetch_feed([config])
+                
+                for item in items:
+                    # Enrich with source info for frontend
+                    source_str = "Unknown"
+                    if config.type == "bilibili_user": source_str = "Bilibili"
+                    elif config.type == "rss_feed": source_str = "RSS"
+                    elif config.type == "hot_list": source_str = "HotList"
                     
-                    # Update author (Remark might have changed) and metrics
-                    existing.author = item.get("author")
-                    existing.metrics = item.get("metrics", {})
-                    existing.thumbnail = item.get("thumbnail")
-                    
-                    session.add(existing)
-                    session.commit()
-                    continue
-                
-                # New Topic
-                db_topic = Topic(
-                    source_config_id=item["source_config_id"],
-                    original_id=item["original_id"],
-                    title=item["title"],
-                    url=item["url"],
-                    summary=item["summary"],
-                    thumbnail=item["thumbnail"],
-                    author=item.get("author"),
-                    metrics=item.get("metrics", {}),
-                    analysis_result=item.get("analysis_result", {}),
-                    status="new",
-                    published_at=datetime.fromisoformat(item["published_at"]) if item.get("published_at") else None
-                )
-                session.add(db_topic)
-                session.commit()
-                session.refresh(db_topic)
-                
-                # Add Tags/Labels
-                labels = item.get("labels", [])
-                for label_name in labels:
-                    tag = TopicTag(topic_id=db_topic.id, tag_name=label_name)
-                    session.add(tag)
-                
-                session.commit()
+                    item["source"] = source_str
+                    persona_items.append(item)
+            
+            # 4. Save to Redis (Key: discovery:persona:{id}, TTL: 12 Hours)
+            # Sort by date before saving
+            persona_items.sort(key=lambda x: x.get("published_at") or "", reverse=True)
+            cache_key = f"discovery:persona:{persona.id}"
+            cache_service.set(cache_key, persona_items, expire=43200)
+            
+            print(f"  ✓ Saved {len(persona_items)} items to Redis cache for {persona.name}")
 
     def fetch_feed(self, source_configs: List) -> List[Dict]:
         """

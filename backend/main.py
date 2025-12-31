@@ -1,7 +1,9 @@
 from fastapi import FastAPI
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi.middleware.cors import CORSMiddleware
 from .database import create_db_and_tables, SessionLocal
-from .api import personas, topics, dashboard, scripts
+from .api import personas, topics, dashboard, scripts, ai
 from .services.crawler import crawler_service
 from apscheduler.schedulers.background import BackgroundScheduler
 import logging
@@ -44,8 +46,8 @@ def on_startup():
     
     # Initialize Scheduler
     scheduler = BackgroundScheduler()
-    # Run sync every 1 hour
-    scheduler.add_job(sync_job, 'interval', hours=1)
+    # Run sync every day at 00:00 and 12:00
+    scheduler.add_job(sync_job, 'cron', hour='0,12')
     scheduler.start()
     
     logger.info("Backend services started and scheduler is active.")
@@ -59,6 +61,7 @@ app.include_router(personas.router)
 app.include_router(topics.router)
 app.include_router(dashboard.router)
 app.include_router(scripts.router)
+app.include_router(ai.router)
 
 if __name__ == "__main__":
     import uvicorn

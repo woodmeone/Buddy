@@ -82,6 +82,7 @@ function transformFromBackend(p) {
 
     return {
         ...p,
+        customPrompt: p.custom_prompt, // Backend: custom_prompt -> Frontend: customPrompt
         bilibiliList,
         rssList,
         hotSources
@@ -104,10 +105,7 @@ function transformToBackend(p) {
         name: p.name,
         description: p.description,
         depth: p.depth,
-        custom_prompt: p.customPrompt, // Note: backend snake_case 'custom_prompt' vs frontend camel 'customPrompt' ?
-        // Check models.py: custom_prompt. 
-        // Frontend useSettings mockData: customPrompt.
-        // Need to ensure mapping.
-        interests: p.interests
+        custom_prompt: p.customPrompt, // Frontend: customPrompt -> Backend: custom_prompt
+        interests: p.interests || []
     }
 }

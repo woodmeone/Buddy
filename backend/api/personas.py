@@ -51,41 +51,60 @@ def delete_persona(persona_id: int, session: Session = Depends(get_session)):
 @router.put("/{persona_id}/sources", response_model=List[SourceConfig])
 def update_persona_sources(persona_id: int, sources: List[SourceConfig], session: Session = Depends(get_session)):
     """
-    Replace all source configs for a persona with the new list.
+    Update sources for a persona. Reuses existing IDs to maintain topic associations.
     """
     persona = session.get(Persona, persona_id)
     if not persona:
         raise HTTPException(status_code=404, detail="Persona not found")
         
-    # 1. Delete existing sources for this persona
-    # Note: efficient way is delete where persona_id = persona_id
-    # but we need to keep IDs if we want stable IDs? 
-    # For MVP, full replace is fine.
+    # 1. Map existing sources by (type, unique_key)
+    # unique_key depends on type: uid for bilibili, url for rss, name for hot
     existing_sources = session.exec(select(SourceConfig).where(SourceConfig.persona_id == persona_id)).all()
-    for s in existing_sources:
-        session.delete(s)
-        
-    # 2. Add new sources
-    new_configs = []
-    for s in sources:
-        # Create new instance to ensure ID is generated or reset if passed
-        # We assume frontend passes config data. ID might be temporary or existing.
-        # We ignore ID from frontend for insert usually, unless we want to update.
-        new_source = SourceConfig(
-            persona_id=persona_id,
-            type=s.type,
-            name=s.name,
-            config_data=s.config_data,
-            enabled=s.enabled,
-            views_threshold=s.views_threshold
-        )
-        session.add(new_source)
-        new_configs.append(new_source)
+    
+    def get_source_key(s):
+        stype = s.type
+        data = s.config_data or {}
+        if stype == "bilibili_user": return f"bili:{data.get('uid')}"
+        if stype == "rss_feed": return f"rss:{data.get('url')}"
+        if stype == "hot_list": return f"hot:{s.name}"
+        return f"other:{s.name}"
+
+    existing_map = {get_source_key(s): s for s in existing_sources}
+    new_ids = []
+    
+    # 2. Process incoming sources
+    for s_in in sources:
+        key = get_source_key(s_in)
+        if key in existing_map:
+            # Update existing
+            db_s = existing_map.pop(key)
+            db_s.name = s_in.name
+            db_s.enabled = s_in.enabled
+            db_s.views_threshold = s_in.views_threshold
+            db_s.config_data = s_in.config_data
+            session.add(db_s)
+            new_ids.append(db_s)
+        else:
+            # Create new
+            new_source = SourceConfig(
+                persona_id=persona_id,
+                type=s_in.type,
+                name=s_in.name,
+                config_data=s_in.config_data,
+                enabled=s_in.enabled,
+                views_threshold=s_in.views_threshold
+            )
+            session.add(new_source)
+            new_ids.append(new_source)
+            
+    # 3. Delete remaining sources that are no longer in the list
+    for s_to_del in existing_map.values():
+        session.delete(s_to_del)
         
     session.commit()
     
-    # 3. Refresh to get IDs
-    for s in new_configs:
+    # Refresh all
+    for s in new_ids:
         session.refresh(s)
         
-    return new_configs
+    return new_ids

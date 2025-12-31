@@ -51,6 +51,8 @@ onMounted(() => {
     if (props.isOpen) startAnalysis()
 })
 
+import { aiService } from '../../services/aiService'
+
 const startAnalysis = async () => {
     isAnalyzing.value = true
     recommendedTopics.value = []
@@ -62,76 +64,47 @@ const startAnalysis = async () => {
         analysisSteps.value[i].status = 'done'
     }
 
-    // Mock Result
-    recommendedTopics.value = [
-        {
-            id: 101,
-            title: '普通人如何用 DeepSeek 提效？(实测)',
-            domain: 'AI 工具',
-            reason: '紧扣“技术博主”人设，DeepSeek 是近期最大热点，适合做工具评测。',
-            heat: 'High',
-        },
-        {
-            id: 102,
-            title: '为什么我不推荐你现在学 Python？',
-            domain: '职业建议',
-            reason: '反直觉观点 (Counter-intuitive)，容易引发讨论，符合“犀利”风格。',
-            heat: 'Medium',
-        },
-        {
-            id: 103,
-            title: 'Vercel 部署 Next.js 踩坑指南',
-            domain: '前端开发',
-            reason: '精准击中开发者痛点，长尾流量高，体现专业度。',
-            heat: 'Low',
-        },
-        {
-            id: 104,
-            title: 'Sora 还没发布，这 3 个竞品已经杀疯了',
-            domain: 'AI 视频',
-            reason: '蹭 Sora 热度，但提供即刻可用的替代方案，价值感强。',
-            heat: 'High',
-        },
-        {
-            id: 105,
-            title: '独立开发者的第一桶金：我的真实复盘',
-            domain: '搞钱/副业',
-            reason: '所有开发者都关心的话题，增加人设的真实感（Human Touch）。',
-            heat: 'High',
-        },
-        {
-            id: 106,
-            title: 'Vue 3.4 性能优化完全指南',
-            domain: '框架技术',
-            reason: '硬核技术干货，稳固“资深”人设的基本盘。',
-            heat: 'Medium',
-        }
-    ]
-    isAnalyzing.value = false
+    try {
+        const res = await aiService.getAIPicks(props.persona?.id)
+        recommendedTopics.value = res.items.map(item => ({
+            ...item.topic,
+            reason: item.reason,
+            domain: item.topic.source || '未知来源',
+            heat: item.topic.metrics?.views || item.topic.metrics?.heat || 'N/A',
+            original: item.topic // 保存原始对象供保存使用
+        }))
+    } catch (err) {
+        console.error('AI Picks failed:', err)
+        alert('AI 分析失败，请确认后端已启动。')
+    } finally {
+        isAnalyzing.value = false
+    }
 }
 
 const router = useRouter()
 import { useRouter } from 'vue-router'
 
-const selectTopic = async (topic) => {
-    // Save and Navigate
+const selectTopic = async (item) => {
+    // 提取原始 Topic 数据
+    const topic = item.original || item
     try {
          const saved = await topicService.createTopic({
-            original_id: `rec-${topic.id}-${topic.title}`, // Stable ID for mock recs
+            original_id: topic.original_id || `rec-${topic.id}`,
             title: topic.title,
-            url: '', 
-            summary: topic.reason, 
-            metrics: { heat: topic.heat },
+            url: topic.url || '', 
+            summary: topic.summary || '', 
+            thumbnail: topic.thumbnail || '',
+            metrics: topic.metrics || {},
             analysis_result: {
-                domain: topic.domain,
-                reason: topic.reason
+                ...topic.analysis_result,
+                reason: item.reason // 保留这次 AI 给出的推荐理由
             },
             status: 'saved'
         })
         emit('close')
         router.push({ name: 'topic-detail', params: { id: saved.data.id } })
     } catch (e) {
-        console.error("Deep dive save failed", e)
+        console.error("Topic save failed", e)
         const msg = e.response?.data?.detail ? JSON.stringify(e.response.data.detail) : e.message
         alert('无法进入详情页：' + msg)
     }

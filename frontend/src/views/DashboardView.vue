@@ -230,6 +230,7 @@ const loadFeed = async () => {
         // Reset to clear mock data
         videos.value = []
         repos.value = []
+        buzzList.value = [] // Added reset for buzzList
         
         feed.forEach(item => {
             if (item.source === 'Bilibili') {
@@ -237,8 +238,8 @@ const loadFeed = async () => {
                 videos.value.push({
                     ...item,
                     thumbnail: proto_pic(item.thumbnail),
-                    summary: item.summary, // The original introduction for hover
-                    aiSummary: '', // Leave empty until 'Deep Dive'
+                    summary: item.summary,
+                    aiSummary: '',
                     author: item.author || '未知UP主',
                     authorAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.author || item.id || 'default'}`,
                     views: item.metrics?.views || 0,
@@ -251,6 +252,14 @@ const loadFeed = async () => {
                     name: item.title,
                     description: item.summary,
                     stars: item.metrics?.stars || 0
+                })
+            } else if (item.source === 'HotList') {
+                buzzList.value.push({
+                    ...item,
+                    id: item.original_id || item.id,
+                    title: item.title,
+                    source: item.metrics?.source_name || '热点',
+                    heat: item.metrics?.heat || '推荐'
                 })
             }
         })
