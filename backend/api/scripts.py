@@ -1,8 +1,10 @@
+from datetime import datetime
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import Session, select
 from ..database import get_session
-from ..models import Script, ScriptCreate, ScriptRead, ScriptUpdate, ScriptTemplate, ScriptTemplateCreate, ScriptTemplateRead, ScriptTemplateUpdate
+from ..models import Script, ScriptCreate, ScriptRead, ScriptUpdate, ScriptTemplate, ScriptTemplateCreate, ScriptTemplateRead, ScriptTemplateUpdate, Topic, Persona
+from ..services.ai_service import ai_service
 
 router = APIRouter(prefix="/api/v1", tags=["scripts"]) 
 
@@ -46,45 +48,77 @@ def delete_template(id: int, session: Session = Depends(get_session)):
 def generate_script(payload: dict = Body(...), session: Session = Depends(get_session)):
     """
     Generate and persist a script for a topic.
-    Returns existing script if one already exists for this topic and template.
     """
     topic_id = payload.get("topic_id")
     template_id = payload.get("template_id")
+    persona_id = payload.get("persona_id")
+    extra_prompt = payload.get("extra_prompt", "")
     
     if not topic_id:
         raise HTTPException(status_code=400, detail="topic_id is required")
 
-    # Check for existing script
-    existing = session.exec(
-        select(Script).where(Script.topic_id == topic_id, Script.template_id == template_id)
-    ).first()
-    if existing:
-        return existing
+    try:
+        topic_id = int(topic_id)
+        if template_id is not None:
+            template_id = int(template_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="IDs must be integers")
 
-    # Get topic and template info for generation
+    # 1. Get Context
     topic = session.get(Topic, topic_id)
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
     
-    # Mock Generation logic
-    # In a real app, this would call an LLM with topic.title, topic.summary, etc.
-    import time
-    time.sleep(1) # Simulate LLM latency
-    
-    title = f"AI Script for: {topic.title}"
-    content = f"# {topic.title}\n\n## AI Analysis Summary\n{topic.ai_summary or 'No AI summary yet.'}\n\n## Video Hook\nWelcome back! Today we are diving into..."
-    
-    db_script = Script(
-        topic_id=topic_id,
-        template_id=template_id,
-        title=title,
-        content=content,
-        status="final"
+    template = session.get(ScriptTemplate, template_id) if template_id else None
+    template_data = template.dict() if template else {}
+
+    if persona_id:
+        persona = session.get(Persona, persona_id)
+    else:
+        persona = session.exec(select(Persona)).first()
+
+    if not persona:
+        raise HTTPException(status_code=400, detail="Persona not found")
+
+    # 2. Real AI Generation
+    content = ai_service.generate_script(
+        topic=topic,
+        template=template_data,
+        persona=persona,
+        extra_prompt=extra_prompt
     )
+    
+    title = f"【脚本】{topic.title[:20]}"
+    
+    # Check for existing script to update or create new
+    existing = session.exec(
+        select(Script).where(Script.topic_id == topic_id, Script.template_id == template_id)
+    ).first()
+    
+    if existing:
+        existing.content = content
+        existing.updated_at = datetime.utcnow()
+        db_script = existing
+    else:
+        db_script = Script(
+            topic_id=topic_id,
+            template_id=template_id,
+            title=title,
+            content=content,
+            status="draft"
+        )
+    
     session.add(db_script)
     session.commit()
     session.refresh(db_script)
     return db_script
+
+@router.get("/scripts/topic/{topic_id}", response_model=ScriptRead)
+def read_script_by_topic(topic_id: int, session: Session = Depends(get_session)):
+    item = session.exec(select(Script).where(Script.topic_id == topic_id)).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Script not found")
+    return item
 
 @router.get("/scripts/{id}", response_model=ScriptRead)
 def read_script(id: int, session: Session = Depends(get_session)):

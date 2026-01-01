@@ -19,32 +19,38 @@ export const dataService = {
         return res.data
     },
 
-    // Script Generation (Mock -> Backend)
-    async generateScript(topicId, templateId) {
+    // Script Generation (Real Backend AI)
+    async generateScript(topicId, templateId, personaId, extraPrompt = '') {
         const res = await api.post('/scripts/generate', {
             topic_id: topicId,
-            template_id: templateId
+            template_id: templateId,
+            persona_id: personaId,
+            extra_prompt: extraPrompt
         })
         return res.data
     },
 
-    // Script Templates
-    async getScriptTemplates() {
-        const res = await api.get('/script-templates')
-        return res.data
+    // Script Recovery
+    async getScriptForTopic(topicId) {
+        try {
+            const res = await api.get(`/scripts/topic/${topicId}`)
+            return res.data
+        } catch (e) {
+            return null // Not found is fine
+        }
     },
 
     // Metadata Generation (AI Title, Info, Tags)
-    async generateMetadata(topicId) {
-        const res = await api.post(`/topics/${topicId}/generate-metadata`)
+    async generateMetadata(topicId, personaId, scriptContent = null) {
+        const params = personaId ? { persona_id: personaId } : {}
+        const payload = scriptContent ? { script_content: scriptContent } : {}
+        const res = await api.post(`/topics/${topicId}/generate-metadata`, payload, { params })
         const topic = res.data
-
-        // Transform backend structure to what frontend expects
         return {
-            titles: [topic.ai_title],
-            intros: [topic.ai_summary],
-            tags: [topic.analysis_result?.keywords || []],
-            targetAudience: topic.analysis_result?.targetAudience
+            ...topic, // Return full topic to keep data synced
+            titles: topic.analysis_result?.ai_titles || [topic.ai_title],
+            intros: topic.analysis_result?.script_intro ? [topic.analysis_result.script_intro] : [topic.ai_summary],
+            tags: topic.analysis_result?.keywords || []
         }
     }
 }

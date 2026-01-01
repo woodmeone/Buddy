@@ -23,7 +23,7 @@ class AIService:
         
         self.client = None
         if self.api_key:
-            self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=110.0)
         else:
             logger.error("AI_API_KEY not found in environment variables.")
 
@@ -113,5 +113,161 @@ class AIService:
         except Exception as e:
             logger.error(f"AI Picks Error: {str(e)}")
             return []
+
+    def analyze_topic(self, topic: Topic, persona: Persona) -> Dict:
+        """
+        针对单个选题进行深度分析，生成标题、摘要、关键词等。
+        """
+        if not self.client:
+            return {}
+
+        # 1. 准备 Topic 数据
+        topic_data = {
+            "title": topic.title,
+            "summary": topic.summary or "",
+            "metrics": topic.metrics or {},
+            "author": topic.author or "未知"
+        }
+
+        # 2. 构建 Prompt
+        interests_str = ", ".join(persona.interests) if persona.interests else "泛内容创作"
+        custom_instructions = f"\n人设核心指令（务必严格遵守）：\n{persona.custom_prompt}" if persona.custom_prompt else ""
+
+        system_prompt = f"""你是一个顶级的智能选题分析师。你的服务对象是【{persona.name}】。
+人设描述：{persona.description or "无"}
+兴趣标签：{interests_str}
+专业深度：{persona.depth}/10
+{custom_instructions}
+
+任务：对提供的单个选题进行深度分析和内容重塑。
+要求：
+1. 【标题建议】：从好奇、价值、情绪三个视角生成 3 个新标题。
+2. 【AI 总结】：生成 1 段 200 字以内的深度总结。
+3. 【核心关键词】：提取 5 个核心关键词。
+4. 【评估】：评估上手难度（1-10）和人设匹配度（1-10）。
+
+请严格返回如下 JSON 格式 (You must respond with valid JSON):
+{{
+    "titles": ["标题(视角A)", "标题(视角B)", "标题(视角C)"],
+    "summary": "AI 总结内容...",
+    "keywords": ["关键词1", "关键词2", ...],
+    "difficulty": 5,
+    "personaMatch": 9
+}}"""
+
+        user_prompt = f"选题原文信息：\n{json.dumps(topic_data, ensure_ascii=False, indent=2)}"
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.7
+            )
+
+            result = json.loads(response.choices[0].message.content)
+            return result
+
+        except Exception as e:
+            logger.error(f"AI Analyze Topic Error: {str(e)}")
+            if 'response' in locals() and hasattr(response, 'choices'):
+                logger.error(f"Raw Response: {response.choices[0].message.content}")
+            return {}
+
+    def generate_script(self, topic: Topic, template: Dict, persona: Persona, extra_prompt: str = "") -> str:
+        """
+        根据模板风格、人设和选题信息，生成视频脚本。
+        """
+        if not self.client:
+            return "AI 服务未初始化"
+
+        # 1. 准备上下文
+        template_name = template.get("name", "通用模板")
+        template_content = template.get("content_template", "")
+        
+        system_prompt = f"""你是一个顶级的视频剧本创作专家。你的创作对象是【{persona.name}】。
+人设：{persona.description or "无"}
+风格标识：专业深度 {persona.depth}/10，兴趣覆盖 {", ".join(persona.interests)}
+
+任务：根据提供的【脚本模板】和【选题信息】，为该人设创作一份高质量的视频脚本。
+【脚本模板案例/要求】：
+{template_content}
+
+【核心要求】：
+1. 严格遵守模板的结构和节奏感。
+2. 语言风格必须高度契合人设（{persona.custom_prompt or "保持其一贯风格"}）。
+3. 脚本应包含画面提示和口播文案，使用 Markdown 格式。
+4. 深度应符合人设设定的 {persona.depth}/10 水平。
+
+{f"额外特殊要求：{extra_prompt}" if extra_prompt else ""}"""
+
+        user_prompt = f"""选题标题：{topic.title}
+选题背景/摘要：{topic.summary or "无"}
+AI 深度总结：{topic.ai_summary or "无"}
+相关数据：{json.dumps(topic.metrics or {}, ensure_ascii=False)}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.8
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"AI Generate Script Error: {str(e)}")
+            raise e
+
+    def generate_metadata_from_script(self, topic: Topic, script_content: str, persona: Persona) -> Dict:
+        """
+        基于生成的脚本内容，反向推导爆款标题、简介和标签。
+        """
+        if not self.client:
+            return {}
+
+        system_prompt = f"""你是一个短视频运营专家。
+你的任务是基于一份已经写好的【视频脚本】，为【{persona.name}】的人设撰写配套的宣发物料。
+
+【核心任务】：
+1. 标题：从以下【三个不同视角】分别生成 1 个爆款标题，总共 3 个：
+   - 视角 A (好奇/痛点)：直击用户核心疑惑或现实痛点，利用反差感勾起好奇。
+   - 视角 B (价值/干货)：强调视频能带来的具体获得感、成长或利益点。
+   - 视角 C (情绪/态度)：通过强烈的情绪共鸣或犀利的观点吸引特定圈层。
+2. 简介：生成一段 100 字左右的视频简介，吸引用户观看。
+3. 标签：提取 5 个精准的 SEO 标签。
+
+请严格返回 JSON 格式 (You must respond with valid JSON):
+{{
+    "titles": ["标题(视角A)", "标题(视角B)", "标题(视角C)"],
+    "intro": "视频简介内容",
+    "tags": ["标签1", "标签2", ...]
+}}"""
+
+        user_prompt = f"""选题原摘要：{topic.summary or "无"}
+AI 深度分析：{topic.ai_summary or "无"}
+最终脚本内容：
+---
+{script_content}
+---"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.7
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            logger.error(f"AI Generate Metadata Error: {str(e)}")
+            raise e
 
 ai_service = AIService()

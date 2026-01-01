@@ -5,7 +5,7 @@ import { mockPersonas, mockScripts, mockSavedTopics } from './mockData'
 // Create Axios Instance
 const api = axios.create({
     baseURL: '/api/v1',
-    timeout: 5000
+    timeout: 120000
 })
 
 // --- MOCK SERVER SETUP (Toggle this based on env if needed) ---

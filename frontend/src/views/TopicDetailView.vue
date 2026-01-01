@@ -1,10 +1,11 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, ExternalLink, Share2, FileText, Code2, Tag, Sparkles, Copy, Trash2, Edit, Heading, AlignLeft, Hash, Lightbulb } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, Share2, FileText, Code2, Tag, Sparkles, Copy, Trash2, Edit, Heading, AlignLeft, Hash, Lightbulb, RefreshCw } from 'lucide-vue-next'
 import { topicService } from '../services/topicService'
 import { scriptService } from '../services/scriptService'
 import { dataService } from '../services/dataService'
+import { useSettings } from '../composables/useSettings'
 
 const route = useRoute()
 const topicId = route.params.id
@@ -21,18 +22,36 @@ const generatedScript = ref('')
 const isEditingScript = ref(false)
 
 // Metadata Generation
+const { currentPersona } = useSettings()
 const metadataRecommendations = ref(null)
 const isGeneratingMetadata = ref(false)
+const isGeneratingAnalysis = ref(false) // NEW: for initial insight
 
-const generateMetadataAction = async () => {
+const generateMetadataAction = async (isManual = false) => {
+    if (isGeneratingMetadata.value) return
     isGeneratingMetadata.value = true
+    if (!isManual && !generatedScript.value) {
+        isGeneratingAnalysis.value = true
+    }
+    
     try {
-        metadataRecommendations.value = await dataService.generateMetadata(topicId)
+        const res = await dataService.generateMetadata(topicId, currentPersona.value?.id, generatedScript.value)
+        topic.value = res
+        
+        if (isManual || generatedScript.value) {
+            metadataRecommendations.value = res
+        }
     } catch (e) {
-        console.error(e)
-        alert('生成失败')
+        // ... (existing catch logic)
+        console.error("AI Analysis Failed:", e)
+        const errorMsg = e.response?.data?.detail || e.message || '未知错误'
+        // Only alert if manual (user clicked the button)
+        if (isManual) {
+            alert('AI 总结生成失败: ' + (typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg)))
+        }
     } finally {
         isGeneratingMetadata.value = false
+        isGeneratingAnalysis.value = false
     }
 }
 
@@ -51,12 +70,25 @@ const loadData = async () => {
         // Actually, let's fix topicService later if needed, but for now I'll import api.
         topic.value = await topicService.getTopic(topicId)
         
-        // If already has AI analysis, show it
-        if (topic.value.ai_title) {
+        // Show AI Insight Summary if exists
+        if (!topic.value.ai_title && !isGeneratingMetadata.value) {
+            // ONLY auto-generate the core summary (insight) if it's the first time
+            generateMetadataAction(false)
+        }
+
+        // --- Persistence Recovery ---
+        // 1. Recover Generated Script
+        const savedScript = await dataService.getScriptForTopic(topicId)
+        if (savedScript) {
+            generatedScript.value = savedScript.content
+        }
+
+        // 2. Recover Recommendations (Titles/Tags) if they exist
+        if (topic.value.analysis_result?.ai_titles?.length > 0) {
             metadataRecommendations.value = {
-                titles: [topic.value.ai_title],
-                intros: [topic.value.ai_summary],
-                tags: [topic.value.analysis_result?.keywords || []]
+                titles: topic.value.analysis_result.ai_titles,
+                intros: topic.value.analysis_result.script_intro ? [topic.value.analysis_result.script_intro] : [topic.value.ai_summary],
+                tags: topic.value.analysis_result.keywords || []
             }
         }
         
@@ -75,19 +107,21 @@ const loadData = async () => {
 
 // Generate Script
 const generateScriptAction = async () => {
+    if (isGenerating.value) return
     isGenerating.value = true
     try {
-        // Use Mock Generation from Backend
-        const res = await dataService.generateScript(topicId, selectedTemplateId.value)
+        // Pass Persona and Template to real AI backend
+        const res = await dataService.generateScript(
+            topicId, 
+            selectedTemplateId.value, 
+            currentPersona.value?.id,
+            manualPrompt.value
+        )
         generatedScript.value = res.content
-        
-        // If user typed extra prompt, we just append it for now as mock doesn't handle it
-        if (manualPrompt.value) {
-            generatedScript.value += `\n\n> Extra requirements: ${manualPrompt.value}`
-        }
     } catch (e) {
         console.error(e)
-        alert('生成失败')
+        const errorMsg = e.response?.data?.detail || e.message || '未知错误'
+        alert('脚本生成失败: ' + (typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg)))
     } finally {
         isGenerating.value = false
     }
@@ -105,11 +139,12 @@ const analysisDisplay = computed(() => {
     // metrics in 'metrics'
     return {
         summary: topic.value.summary || '暂无摘要',
-        // Try to safe access fields
+        ai_summary: topic.value.ai_summary,
         difficulty: topic.value.analysis_result?.difficulty || 'N/A',
         match: topic.value.analysis_result?.personaMatch || 'N/A',
-        value: topic.value.analysis_result?.commercialValue || 'N/A',
-        metrics: topic.value.metrics || {}
+        metrics: topic.value.metrics || {},
+        author: topic.value.author || topic.value.metrics?.author || '未知',
+        publishedAt: topic.value.published_at ? new Date(topic.value.published_at).toLocaleString('zh-CN', { hour12: false }) : '未知'
     }
 })
 
@@ -138,9 +173,26 @@ onMounted(loadData)
              </a>
              <div class="h-4 w-px bg-slate-200 mx-2"></div>
              <button disabled class="text-sm text-slate-400 cursor-not-allowed flex items-center gap-1">
-                 <Share2 class="w-4 h-4" /> 同步飞书 (Soon)
+                 <Share2 class="w-4 h-4" /> 推送飞书
              </button>
          </div>
+    </div>
+
+    <!-- Thumbnail Banner (Small) -->
+    <div v-if="topic?.thumbnail" class="w-full h-32 relative shrink-0 overflow-hidden">
+        <img :src="topic.thumbnail" class="w-full h-full object-cover blur-2xl opacity-20 absolute inset-0" />
+        <div class="absolute inset-0 flex items-center px-8 gap-6 bg-gradient-to-r from-slate-50 to-transparent">
+            <img :src="topic.thumbnail" class="h-20 w-32 object-cover rounded-lg shadow-lg border-2 border-white" />
+            <div class="flex flex-col">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Original Feed Info</span>
+                <h2 class="text-xl font-bold text-slate-700 truncate max-w-2xl">{{ topic.title }}</h2>
+                <div class="flex items-center gap-3 text-xs text-slate-500 mt-1">
+                    <span>{{ analysisDisplay.author }}</span>
+                    <span>•</span>
+                    <span>发布于 {{ analysisDisplay.publishedAt }}</span>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Main Content -->
@@ -155,27 +207,59 @@ onMounted(loadData)
             
             <!-- Analysis Card -->
             <section>
-                <h2 class="font-bold text-slate-800 flex items-center gap-2 mb-4">
-                    <Code2 class="w-5 h-5 text-indigo-500" />
-                    AI 深度分析
-                </h2>
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="font-bold text-slate-800 flex items-center gap-2">
+                        <Sparkles class="w-5 h-5 text-indigo-500" />
+                        AI 智能洞察
+                    </h2>
+                    <span v-if="isGeneratingMetadata" class="text-xs text-indigo-500 animate-pulse flex items-center gap-1">
+                        <RefreshCw class="w-3 h-3 animate-spin" /> 分析中...
+                    </span>
+                </div>
+                
                 <div class="bg-indigo-50/50 rounded-xl p-4 border border-indigo-100 space-y-4">
-                    <div>
-                        <span class="text-xs font-bold text-indigo-400 uppercase tracking-wider">Summary</span>
-                        <p class="text-sm text-slate-700 leading-relaxed mt-1">
-                            {{ analysisDisplay.summary }}
+                    <!-- Only show pulse if the CORE summary is missing AND we are generating initial analysis -->
+                    <div v-if="!analysisDisplay.ai_summary && isGeneratingAnalysis" class="space-y-2">
+                        <div class="h-4 bg-indigo-100 rounded w-full animate-pulse"></div>
+                        <div class="h-4 bg-indigo-100 rounded w-5/6 animate-pulse"></div>
+                        <div class="h-4 bg-indigo-100 rounded w-4/6 animate-pulse"></div>
+                    </div>
+                    <div v-else>
+                        <span class="text-xs font-bold text-indigo-400 uppercase tracking-wider">AI Insight</span>
+                        <p class="text-sm text-slate-700 leading-relaxed mt-1 whitespace-pre-wrap min-h-[60px]">
+                            {{ analysisDisplay.ai_summary || (isGeneratingAnalysis ? 'AI 正在深度解析选题价值...' : '暂无分析结果') }}
                         </p>
                     </div>
+                    
                     <div class="grid grid-cols-2 gap-3">
                          <div class="bg-white p-3 rounded-lg border border-slate-100">
-                             <span class="text-xs text-slate-400">领域匹配度</span>
-                             <div class="font-medium text-slate-700">{{ analysisDisplay.match }}</div>
+                             <div class="text-xs text-slate-400">选题匹配度</div>
+                             <div class="flex items-center gap-1">
+                                <div class="font-bold text-indigo-600 text-lg">{{ analysisDisplay.match }}</div>
+                                <div class="text-[10px] text-slate-400">/10</div>
+                             </div>
                          </div>
                          <div class="bg-white p-3 rounded-lg border border-slate-100">
-                             <span class="text-xs text-slate-400">上手难度</span>
-                             <div class="font-medium text-slate-700">{{ analysisDisplay.difficulty }}</div>
+                             <div class="text-xs text-slate-400">上手难度</div>
+                             <div class="flex items-center gap-1">
+                                <div class="font-bold text-amber-600 text-lg">{{ analysisDisplay.difficulty }}</div>
+                                <div class="text-[10px] text-slate-400">/10</div>
+                             </div>
                          </div>
                     </div>
+                </div>
+            </section>
+
+            <!-- Raw Content -->
+            <section>
+                <h2 class="font-bold text-slate-800 flex items-center gap-2 mb-4">
+                    <AlignLeft class="w-5 h-5 text-slate-400" />
+                    原文摘要
+                </h2>
+                <div class="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                    <p class="text-sm text-slate-600 leading-relaxed italic">
+                        "{{ analysisDisplay.summary }}"
+                    </p>
                 </div>
             </section>
 
@@ -274,7 +358,7 @@ onMounted(loadData)
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">Markdown Preview</span>
                     <div class="flex items-center gap-3">
                          <button 
-                            @click="generateMetadataAction"
+                            @click="generateMetadataAction(true)"
                             :disabled="isGeneratingMetadata || !generatedScript"
                             class="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -337,12 +421,15 @@ onMounted(loadData)
                  <h3 class="font-bold text-slate-800 mb-3 flex items-center gap-2 text-sm">
                     <Hash class="w-4 h-4 text-blue-500" /> 推荐标签
                  </h3>
-                 <div class="space-y-3">
-                     <div v-for="(tags, i) in metadataRecommendations.tags" :key="i" class="group relative">
-                         <div class="p-3 bg-slate-50 hover:bg-indigo-50 rounded-lg border border-slate-100 hover:border-indigo-100 transition-colors cursor-pointer flex flex-wrap gap-2" @click="navigator.clipboard.writeText(tags.join(' ')); alert('已复制')">
-                            <span v-for="tag in tags" :key="tag" class="px-2 py-0.5 bg-white rounded border border-slate-200 text-xs text-slate-500">#{{ tag }}</span>
-                         </div>
-                     </div>
+                 <div class="flex flex-wrap gap-2">
+                      <span 
+                        v-for="tag in metadataRecommendations.tags" 
+                        :key="tag" 
+                        class="px-2 py-0.5 bg-slate-50 hover:bg-indigo-50 rounded border border-slate-200 hover:border-indigo-200 text-xs text-slate-500 cursor-copy transition-colors"
+                        @click="navigator.clipboard.writeText(tag); alert('已复制标签: #' + tag)"
+                      >
+                        #{{ tag }}
+                      </span>
                  </div>
             </section>
         </div>

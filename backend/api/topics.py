@@ -1,38 +1,75 @@
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import Session, select
 from ..database import get_session
-from ..models import Topic, TopicCreate, TopicRead, TopicUpdate
+from ..models import Topic, TopicCreate, TopicRead, TopicUpdate, Persona
+from ..services.ai_service import ai_service
 
 router = APIRouter(prefix="/api/v1/topics", tags=["topics"])
 
 @router.post("/{topic_id}/generate-metadata", response_model=TopicRead)
-def generate_topic_metadata(topic_id: int, session: Session = Depends(get_session)):
+def generate_topic_metadata(
+    topic_id: int, 
+    persona_id: Optional[int] = None,
+    payload: dict = Body({}),
+    session: Session = Depends(get_session)
+):
     """
     Generates and persists AI titles, summary and tags for a topic.
+    If script_content is provided, recommendations are based on the script.
     """
     db_topic = session.get(Topic, topic_id)
     if not db_topic:
         raise HTTPException(status_code=404, detail="Topic not found")
 
-    # If already has AI title, return existing (as per user's 'persistence' request)
-    if db_topic.ai_title:
-        return db_topic
+    script_content = payload.get("script_content")
 
-    # Mock AI Generation Logic
-    # In reality, call LLM here.
-    import time
-    time.sleep(1)
+    # Get Persona for analysis context
+    if persona_id:
+        persona = session.get(Persona, persona_id)
+    else:
+        persona = session.exec(select(Persona)).first()
     
-    db_topic.ai_title = f"【爆款】{db_topic.title[:20]}... 的深度解析"
-    db_topic.ai_summary = f"基于原视频 '{db_topic.title}'，本选题聚焦于创作者的核心痛点，分析了其火爆背后的底层逻辑..."
+    if not persona:
+        raise HTTPException(status_code=400, detail="No persona found for context")
+
+    # Call AI Generation
+    if script_content:
+        # Base on Script
+        result = ai_service.generate_metadata_from_script(db_topic, script_content, persona)
+        if result:
+            # Force a fresh dict to ensure change detection
+            analysis = dict(db_topic.analysis_result or {})
+            analysis["ai_titles"] = result.get("titles", [])
+            analysis["keywords"] = result.get("tags", [])
+            
+            if result.get("titles"):
+                db_topic.ai_title = result.get("titles")[0]
+            if result.get("intro"):
+                 analysis["script_intro"] = result.get("intro")
+            
+            db_topic.analysis_result = analysis
+    else:
+        # Standard Deep Dive Analysis (only if not already done)
+        if db_topic.ai_title:
+            return db_topic
+            
+        result = ai_service.analyze_topic(db_topic, persona)
+        if result:
+            db_topic.ai_title = result.get("titles", [""])[0] if result.get("titles") else f"【解析】{db_topic.title}"
+            db_topic.ai_summary = result.get("summary")
+            
+            # Force a fresh dict
+            analysis = dict(db_topic.analysis_result or {})
+            analysis["ai_titles"] = result.get("titles", [])
+            analysis["keywords"] = result.get("keywords", [])
+            analysis["difficulty"] = result.get("difficulty")
+            analysis["personaMatch"] = result.get("personaMatch")
+            db_topic.analysis_result = analysis
     
-    # Update analysis_result with keywords
-    analysis = db_topic.analysis_result or {}
-    analysis["keywords"] = ["爆款逻辑", "内容创作", "选题分析"]
-    analysis["targetAudience"] = "内容创作者，短视频博主"
-    db_topic.analysis_result = analysis
+    if not result:
+        raise HTTPException(status_code=500, detail="AI analysis failed")
     
     session.add(db_topic)
     session.commit()
