@@ -14,14 +14,16 @@ def create_persona(persona: PersonaCreate, session: Session = Depends(get_sessio
     session.refresh(db_persona)
     return db_persona
 
+from sqlalchemy.orm import selectinload
+
 @router.get("/", response_model=List[PersonaRead])
 def read_personas(session: Session = Depends(get_session)):
-    personas = session.exec(select(Persona)).all()
+    personas = session.exec(select(Persona).options(selectinload(Persona.source_configs))).all()
     return personas
 
 @router.get("/{persona_id}", response_model=PersonaRead)
 def read_persona(persona_id: int, session: Session = Depends(get_session)):
-    persona = session.get(Persona, persona_id)
+    persona = session.exec(select(Persona).where(Persona.id == persona_id).options(selectinload(Persona.source_configs))).first()
     if not persona:
         raise HTTPException(status_code=404, detail="Persona not found")
     return persona

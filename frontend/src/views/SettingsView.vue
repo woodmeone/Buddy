@@ -1,6 +1,6 @@
 <script setup>
-import { ref, watch } from 'vue'
-import { Save, User, Hash, MonitorPlay, Rss, Flame, ChevronDown, RefreshCw } from 'lucide-vue-next'
+import { ref, watch, onUnmounted, onMounted, onErrorCaptured } from 'vue'
+import { Save, User, Hash, MonitorPlay, Rss, Flame, ChevronDown, RefreshCw, CheckCircle2, LayoutDashboard, X } from 'lucide-vue-next'
 import { useSettings } from '../composables/useSettings'
 import PersonaManager from '../components/settings/PersonaManager.vue'
 import { dataService } from '../services/dataService'
@@ -47,17 +47,85 @@ const addHotSource = () => {
 }
 
 const isSyncing = ref(false)
+const syncProgress = ref(0)
+const syncMessage = ref('')
+const showSyncToast = ref(false)
+let syncTimer = null
+
+// ... existing code ...
+
+const startPolling = () => {
+    if (syncTimer) return // Avoid multiple timers
+    syncTimer = setInterval(async () => {
+        try {
+            const status = await dataService.getSyncStatus()
+            syncProgress.value = status.progress
+            syncMessage.value = status.last_message
+            isSyncing.value = status.is_syncing
+
+            if (!status.is_syncing) {
+                stopPolling()
+                if (status.progress === 100) {
+                    showSyncToast.value = true
+                    setTimeout(() => {
+                        showSyncToast.value = false
+                    }, 6000)
+                }
+            }
+        } catch (e) {
+            console.error('[Settings] Status polling failed', e)
+            stopPolling()
+            isSyncing.value = false
+        }
+    }, 1000)
+}
+
+const stopPolling = () => {
+    if (syncTimer) {
+        clearInterval(syncTimer)
+        syncTimer = null
+    }
+}
+
+onErrorCaptured((err, instance, info) => {
+    console.error('[SettingsView] Error Captured:', err)
+    console.error('Instance:', instance)
+    console.error('Info:', info)
+    return false // Stop propagation to prevent global crash
+})
+
+onMounted(async () => {
+    // Check initial status when component mounts
+    try {
+        const status = await dataService.getSyncStatus()
+        isSyncing.value = status.is_syncing
+        syncProgress.value = status.progress
+        syncMessage.value = status.last_message
+        
+        if (status.is_syncing) {
+            startPolling()
+        }
+    } catch (e) {
+        console.error('[Settings] Initial status check failed', e)
+    }
+})
+
+onUnmounted(() => stopPolling())
+
 const handleSync = async () => {
+    if (isSyncing.value) return
+    
     isSyncing.value = true
+    syncProgress.value = 0
+    syncMessage.value = '准备同步...'
+    
     console.log('[Settings] Starting manual sync...')
     try {
         await dataService.manualSync()
-        console.log('[Settings] Sync successful')
-        alert('同步完成！新情报已抓取，请回到情报大盘查看。')
+        startPolling()
     } catch (e) {
         console.error('[Settings] Sync failed', e)
         alert('同步失败，请检查网络或配置。')
-    } finally {
         isSyncing.value = false
     }
 }
@@ -270,18 +338,51 @@ const handleSave = async () => {
             </div>
         </div>
 
-        <div class="absolute bottom-8 right-8 flex gap-3 z-10">
-            <button @click="handleSync" 
-                :disabled="isSyncing"
-                class="bg-white border border-slate-200 text-slate-700 px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:border-indigo-300 transition-all disabled:opacity-50">
-                <RefreshCw class="w-5 h-5" :class="isSyncing ? 'animate-spin' : ''" />
-                {{ isSyncing ? '同步中...' : '立即同步' }}
-            </button>
-            <button @click="handleSave" class="bg-black text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:-translate-y-1 transition-transform">
-                <Save class="w-5 h-5" />
-                保存配置
-            </button>
+        <div class="absolute bottom-8 right-8 flex flex-col items-end gap-3 z-10">
+            <!-- Progress Bar (Visible during sync) -->
+            <transition name="fade">
+                <div v-if="isSyncing" class="w-64 bg-slate-100 rounded-full h-1.5 overflow-hidden border border-slate-200 shadow-inner mb-1">
+                    <div 
+                        class="bg-indigo-500 h-full transition-all duration-500 ease-out"
+                        :style="{ width: `${syncProgress}%` }"
+                    ></div>
+                </div>
+            </transition>
+            <div v-if="isSyncing" class="text-[10px] text-slate-400 mb-2 font-mono">{{ syncMessage }} ({{ syncProgress }}%)</div>
+
+            <div class="flex gap-3">
+                <button @click="handleSync" 
+                    :disabled="isSyncing"
+                    class="bg-white border border-slate-200 text-slate-700 px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:border-indigo-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                    <RefreshCw class="w-5 h-5" :class="isSyncing ? 'animate-spin' : ''" />
+                    {{ isSyncing ? '同步中...' : '立即同步' }}
+                </button>
+                <button @click="handleSave" class="bg-black text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:-translate-y-1 transition-transform">
+                    <Save class="w-5 h-5" />
+                    保存配置
+                </button>
+            </div>
         </div>
+
+        <!-- Success Toast -->
+        <transition name="toast">
+            <div v-if="showSyncToast" class="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 bg-white border border-slate-200 shadow-2xl rounded-2xl p-4 flex items-center gap-4 min-w-[320px] animate-bounce-subtle">
+                <div class="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
+                    <CheckCircle2 class="w-6 h-6" />
+                </div>
+                <div class="flex-1">
+                    <h4 class="font-bold text-slate-800 text-sm">情报抓取完毕</h4>
+                    <p class="text-xs text-slate-500">建议立即前往情报大盘查看最新动态</p>
+                </div>
+                <router-link to="/" class="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-indigo-600 transition-colors">
+                    <LayoutDashboard class="w-3 h-3" />
+                    前往查看
+                </router-link>
+                <button @click="showSyncToast = false" class="text-slate-300 hover:text-slate-500">
+                    <X class="w-4 h-4" />
+                </button>
+            </div>
+        </transition>
     </div>
     
     <div v-else class="flex-1 flex items-center justify-center text-slate-400">
@@ -296,5 +397,33 @@ const handleSave = async () => {
     background-position: bottom;
     background-size: 8px 1px;
     background-repeat: repeat-x;
+}
+
+/* Transitions */
+.fade-enter-active, .fade-leave-active {
+    transition: opacity 0.3s ease;
+}
+.fade-enter-from, .fade-leave-to {
+    opacity: 0;
+}
+
+.toast-enter-active {
+    animation: toast-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.toast-leave-active {
+    animation: toast-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) reverse;
+}
+
+@keyframes toast-in {
+    0% { transform: translate(-50%, 20px) scale(0.9); opacity: 0; }
+    100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
+}
+
+@keyframes bounce-subtle {
+    0%, 100% { transform: translate(-50%, 0); }
+    50% { transform: translate(-50%, -5px); }
+}
+.animate-bounce-subtle {
+    animation: bounce-subtle 3s infinite ease-in-out;
 }
 </style>

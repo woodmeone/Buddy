@@ -38,5 +38,9 @@ export const topicService = {
 
     async updateTopicStatus(id, status) {
         return api.put(`/topics/${id}`, { status })
+    },
+
+    async updateTopic(id, data) {
+        return api.put(`/topics/${id}`, data)
     }
 }

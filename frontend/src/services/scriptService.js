@@ -34,5 +34,9 @@ export const scriptService = {
 
     async deleteTemplate(id) {
         return api.delete(`/script-templates/${id}`)
+    },
+
+    async updateScript(id, content) {
+        return api.put(`/scripts/${id}`, { content })
     }
 }

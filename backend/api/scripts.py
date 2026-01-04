@@ -126,3 +126,22 @@ def read_script(id: int, session: Session = Depends(get_session)):
     if not item:
         raise HTTPException(status_code=404, detail="Script not found")
     return item
+
+@router.put("/scripts/{id}", response_model=ScriptRead)
+def update_script(id: int, payload: dict = Body(...), session: Session = Depends(get_session)):
+    """
+    Update logic content of a script.
+    """
+    db_script = session.get(Script, id)
+    if not db_script:
+        raise HTTPException(status_code=404, detail="Script not found")
+        
+    content = payload.get("content")
+    if content is not None:
+        db_script.content = content
+        db_script.updated_at = datetime.utcnow()
+        
+    session.add(db_script)
+    session.commit()
+    session.refresh(db_script)
+    return db_script

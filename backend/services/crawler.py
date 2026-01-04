@@ -11,6 +11,11 @@ class CrawlerService:
     """
     Service to fetch data from external platforms.
     """
+    def __init__(self):
+        self.is_syncing = False
+        self.total_count = 0
+        self.current_count = 0
+        self.last_message = ""
     
     def sync_all_sources(self, session: Session):
         """
@@ -22,6 +27,12 @@ class CrawlerService:
         # 1. Get all personas to group configs
         personas = session.exec(select(Persona)).all()
         
+        # Reset progress
+        self.is_syncing = True
+        self.total_count = sum(len([c for c in p.source_configs if c.enabled]) for p in personas)
+        self.current_count = 0
+        self.last_message = "开始同步..."
+
         for persona in personas:
             print(f"Syncing all sources for persona: {persona.name}...")
             
@@ -34,6 +45,8 @@ class CrawlerService:
                 
             # 3. Fetch data for each config
             for config in configs:
+                self.current_count += 1
+                self.last_message = f"正在同步 {persona.name} 的 {config.name}..."
                 print(f"  Fetching: {config.name} ({config.type})...")
                 items = self.fetch_feed([config])
                 
@@ -54,6 +67,10 @@ class CrawlerService:
             cache_service.set(cache_key, persona_items, expire=43200)
             
             print(f"  ✓ Saved {len(persona_items)} items to Redis cache for {persona.name}")
+
+        self.is_syncing = False
+        self.last_message = "同步完成"
+        self.current_count = self.total_count
 
     def fetch_feed(self, source_configs: List) -> List[Dict]:
         """

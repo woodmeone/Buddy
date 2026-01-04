@@ -188,26 +188,38 @@ class AIService:
         template_name = template.get("name", "通用模板")
         template_content = template.get("content_template", "")
         
-        system_prompt = f"""你是一个顶级的视频剧本创作专家。你的创作对象是【{persona.name}】。
-人设：{persona.description or "无"}
-风格标识：专业深度 {persona.depth}/10，兴趣覆盖 {", ".join(persona.interests)}
+        # 1. 准备语言模型所需的上下文环境
+        interests_str = ", ".join(persona.interests) if persona.interests else "泛内容创作"
+        
+        system_prompt = f"""你是一个顶级的短视频剧本主创，擅长通过拆解优秀案例来为特定人设（Persona）量身定制内容。
 
-任务：根据提供的【脚本模板】和【选题信息】，为该人设创作一份高质量的视频脚本。
-【脚本模板案例/要求】：
+【当前人设身份】
+- 名称：{persona.name}
+- 专业深度：{persona.depth}/10
+- 核心标签：{interests_str}
+- 人设设定：{persona.custom_prompt or "未设定"}
+
+【创作准则】
+1. **适配案例骨架**：下方的【参考案例】是你本次创作的结构模版。请学习其叙事节奏、分镜逻辑和互动钩子。
+2. **灵魂人设化**：产出的台词必须完全符合上述【人设身份】的语气和专业厚度。
+3. **内容素材融合**：将【选题素材】中的核心观点、数据和背景，自然地嵌入到参考案例的结构中。
+
+【参考案例（脚本模板）】
+---
 {template_content}
+---
 
-【核心要求】：
-1. 严格遵守模板的结构和节奏感。
-2. 语言风格必须高度契合人设（{persona.custom_prompt or "保持其一贯风格"}）。
-3. 脚本应包含画面提示和口播文案，使用 Markdown 格式。
-4. 深度应符合人设设定的 {persona.depth}/10 水平。
+【输出格式】
+- 使用 Markdown 格式。
+- 必须包含 [画面提示] 和 [口播台词]。
+- 节奏感需与参考案例保持一致。
+{f"- 额外特殊要求：{extra_prompt}" if extra_prompt else ""}"""
 
-{f"额外特殊要求：{extra_prompt}" if extra_prompt else ""}"""
-
-        user_prompt = f"""选题标题：{topic.title}
-选题背景/摘要：{topic.summary or "无"}
-AI 深度总结：{topic.ai_summary or "无"}
-相关数据：{json.dumps(topic.metrics or {}, ensure_ascii=False)}"""
+        user_prompt = f"""【选题素材】
+- 标题：{topic.title}
+- 背景分析：{topic.summary or "无"}
+- AI 深度见解：{topic.ai_summary or "无"}
+- 关键数据：{json.dumps(topic.metrics or {}, ensure_ascii=False)}"""
 
         try:
             response = self.client.chat.completions.create(

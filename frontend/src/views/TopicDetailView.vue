@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, ExternalLink, Share2, FileText, Code2, Tag, Sparkles, Copy, Trash2, Edit, Heading, AlignLeft, Hash, Lightbulb, RefreshCw } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, Share2, FileText, Code2, Tag, Sparkles, Copy, Trash2, Edit, Heading, AlignLeft, Hash, Lightbulb, RefreshCw, Save } from 'lucide-vue-next'
 import { topicService } from '../services/topicService'
 import { scriptService } from '../services/scriptService'
 import { dataService } from '../services/dataService'
@@ -81,6 +81,7 @@ const loadData = async () => {
         const savedScript = await dataService.getScriptForTopic(topicId)
         if (savedScript) {
             generatedScript.value = savedScript.content
+            currentScriptId.value = savedScript.id
         }
 
         // 2. Recover Recommendations (Titles/Tags) if they exist
@@ -118,6 +119,7 @@ const generateScriptAction = async () => {
             manualPrompt.value
         )
         generatedScript.value = res.content
+        currentScriptId.value = res.id
     } catch (e) {
         console.error(e)
         const errorMsg = e.response?.data?.detail || e.message || '未知错误'
@@ -130,6 +132,46 @@ const generateScriptAction = async () => {
 const copyScript = () => {
     navigator.clipboard.writeText(generatedScript.value)
     alert('已复制')
+}
+
+// Save Functionality
+const isSaving = ref(false)
+const currentScriptId = ref(null)
+
+const saveAll = async () => {
+    if (isSaving.value) return
+    isSaving.value = true
+    try {
+        // 1. Update Topic Metadata
+        // We need to merge metadataRecommendations back into analysis_result if they were modified manually (unavailable yet, but assuming we persist what filters generated)
+        // For now, we persist whatever is in metadataRecommendations as the 'latest' state if it exists
+        
+        let analysisUpdate = { ...(topic.value.analysis_result || {}) }
+        
+        if (metadataRecommendations.value) {
+           analysisUpdate.ai_titles = metadataRecommendations.value.titles
+           analysisUpdate.keywords = metadataRecommendations.value.tags
+           if (metadataRecommendations.value.intros && metadataRecommendations.value.intros.length > 0) {
+               analysisUpdate.script_intro = metadataRecommendations.value.intros[0]
+           }
+        }
+
+        await topicService.updateTopic(topicId, {
+            analysis_result: analysisUpdate
+        })
+
+        // 2. Update Script Content
+        if (currentScriptId.value && generatedScript.value) {
+            await scriptService.updateScript(currentScriptId.value, generatedScript.value)
+        }
+
+        alert('保存成功！')
+    } catch (e) {
+        console.error('Save failed', e)
+        alert('保存失败')
+    } finally {
+        isSaving.value = false
+    }
 }
 
 // Helpers
@@ -370,8 +412,11 @@ onMounted(loadData)
                         <button @click="copyScript" class="p-1.5 hover:bg-slate-100 rounded text-slate-500 transition" title="Copy">
                             <Copy class="w-4 h-4" />
                         </button>
-                         <button disabled class="p-1.5 hover:bg-slate-100 rounded text-slate-500 transition" title="Save (Auto)">
-                            <Edit class="w-4 h-4" />
+                         <button 
+                            @click="saveAll" 
+                            :disabled="isSaving"
+                            class="p-1.5 hover:bg-slate-100 rounded text-slate-500 transition flex items-center gap-1" title="Save All">
+                            <Save class="w-4 h-4" :class="isSaving ? 'animate-bounce' : ''" />
                         </button>
                     </div>
                 </div>

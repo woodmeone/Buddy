@@ -6,6 +6,12 @@ export const dataService = {
         return api.post('/dashboard/sync', {}, { timeout: 60000 })
     },
 
+    // Get Sync Status
+    async getSyncStatus() {
+        const res = await api.get('/dashboard/sync/status')
+        return res.data
+    },
+
     // Discovery Feed (Mock -> Backend Crawler)
     async getDiscoveryFeed(personaId, type = 'all') {
         if (!personaId) return []
